@@ -1,0 +1,4 @@
+LEADERBOARD_HMAC_SECRET="replace-with-at-least-32-random-characters"
+ALLOWED_ORIGINS="http://localhost:5173"
+GEMINI_OAUTH_CLIENT_ID="replace-with-your-oauth-client-id"
+GEMINI_OAUTH_CLIENT_SECRET="replace-with-your-oauth-client-secret"

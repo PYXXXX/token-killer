@@ -1,0 +1,35 @@
+{
+  "name": "token-killer",
+  "private": true,
+  "version": "0.1.0",
+  "description": "A browser-first playground for spending, tracking, and ranking AI tokens.",
+  "license": "LGPL-3.0-only",
+  "repository": "https://github.com/PYXXXX/token-killer",
+  "homepage": "https://pyxxxx.github.io/token-killer/",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "eslint .",
+    "deploy:cloudflare": "npm run build && wrangler deploy",
+    "dev:cloudflare": "npm run build && wrangler dev",
+    "db:migrate:local": "wrangler d1 migrations apply TOKEN_KILLER_DB --local",
+    "db:migrate:remote": "wrangler d1 migrations apply TOKEN_KILLER_DB --remote"
+  },
+  "dependencies": {
+    "@phosphor-icons/react": "^2.1.10",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.30.1",
+    "@vitejs/plugin-react": "^4.6.0",
+    "eslint": "^9.30.1",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "^0.4.20",
+    "globals": "^16.3.0",
+    "vite": "^7.0.4",
+    "wrangler": "^4.110.0"
+  }
+}

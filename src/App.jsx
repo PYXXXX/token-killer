@@ -1,0 +1,1871 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  ArrowClockwise,
+  CaretLeft,
+  CaretRight,
+  ChartBar,
+  Check,
+  Copy,
+  Crown,
+  Database,
+  DownloadSimple,
+  Eye,
+  EyeSlash,
+  Fire,
+  Gauge,
+  Info,
+  Key,
+  Lightning,
+  ListChecks,
+  Moon,
+  MapPin,
+  Play,
+  ShieldCheck,
+  SlidersHorizontal,
+  Stop,
+  Star,
+  Sun,
+  Trash,
+  XLogo,
+} from '@phosphor-icons/react'
+import { callProvider, guardedPromptEstimate, loadProviderModels } from './lib/api.js'
+import {
+  deleteSubscriptionAccount,
+  finishClaudeLogin,
+  finishGeminiLogin,
+  finishGrokLogin,
+  listSubscriptionAccounts,
+  pollChatGPTDeviceLogin,
+  startChatGPTDeviceLogin,
+  startClaudeLogin,
+  startGeminiLogin,
+  startGrokLogin,
+} from './lib/accounts.js'
+import {
+  ACCOUNT_PROVIDER_TO_SETTINGS,
+  API_FORMATS,
+  loadOpenRouterModels,
+  PROMPT_PRESETS,
+  PROVIDERS,
+  resolvePrice,
+  SUBSCRIPTION_MODELS,
+  SUBSCRIPTION_PROVIDER_IDS,
+} from './lib/catalog.js'
+import { formatDuration, formatMoney, formatTokens, percent, todayKey } from './lib/format.js'
+import { createLeaderboardSession, getLeaderboard, getLeaderboardProfile, submitLeaderboardRun } from './lib/leaderboard.js'
+import { RANK_TIERS, rankForTokens } from './lib/ranks.js'
+import { clearLocalData, exportLocalData, getParticipantLabel, hasOnboarded, markOnboarded, readRuns, readSettings, writeRuns, writeSettings } from './lib/storage.js'
+import { exportShareCard } from './lib/share.js'
+import { clearLocalVault, deleteEncryptedSecret, getEncryptedSecret, saveEncryptedSecret } from './lib/localVault.js'
+
+const isSubscriptionProvider = (provider) => SUBSCRIPTION_PROVIDER_IDS.includes(provider)
+const accountProviderForSettings = (provider) => ({
+  chatgpt: 'openai',
+  claude_subscription: 'claude',
+  gemini_subscription: 'gemini',
+  grok_subscription: 'grok',
+}[provider] || '')
+const apiKeySecretId = (provider) => `api-key:${provider}`
+
+function leaderboardSourceLabel(value) {
+  const source = String(value || '').trim()
+  if (!source) return '当前站点 /api'
+  if (source.startsWith('/')) return `当前站点${source}`.slice(0, 96)
+  try {
+    const url = new URL(source)
+    if (!['http:', 'https:'].includes(url.protocol)) return '当前站点 /api'
+    return `${url.host}${url.pathname === '/' ? '' : url.pathname}`.slice(0, 96)
+  } catch {
+    return '当前站点 /api'
+  }
+}
+
+function participantLabelFromEntry(value, rank = 0) {
+  const label = String(value || '')
+  if (/^燃烧者 #[1-9]\d{5}$/.test(label)) return label
+  return `燃烧者 #${String(100000 + (Math.max(0, Number(rank) || 0) % 900000)).padStart(6, '0')}`
+}
+
+const DEFAULT_SETTINGS = {
+  provider: 'openrouter',
+  endpoint: PROVIDERS.openrouter.endpoint,
+  model: PROVIDERS.openrouter.model,
+  apiKey: '',
+  apiFormat: 'openai',
+  authMode: 'bearer',
+  tokenParam: 'auto',
+  anthropicVersion: '2023-06-01',
+  extraHeaders: '',
+  stream: false,
+  deepThinking: false,
+  reasoningEffort: 'high',
+  systemPrompt: '你是一台只执行当前任务的语言模型。不要调用工具，不要提前结束。',
+  targetMode: 'tokens',
+  targetTokens: 100000,
+  targetAmount: 1,
+  batchSize: 4096,
+  promptId: 'entropy',
+  customPrompt: '',
+  publishToLeaderboard: true,
+  leaderboardApiUrl: '',
+  subscriptionApiUrl: '',
+  selectedAccountId: '',
+  theme: 'system',
+  inputPricePerMillion: '',
+  outputPricePerMillion: '',
+}
+
+const INITIAL_SESSION = {
+  status: 'idle',
+  tokens: 0,
+  input: 0,
+  output: 0,
+  cost: 0,
+  rounds: 0,
+  verifiedRounds: 0,
+  startedAt: 0,
+  endedAt: 0,
+  currentOutput: '',
+  logs: [],
+  message: '等待启动',
+}
+
+function NavButton({ active, icon: Icon, label, onClick }) {
+  const NavIcon = Icon
+  return (
+    <button className={`nav-button ${active ? 'active' : ''}`} type="button" onClick={onClick}>
+      <NavIcon size={20} weight={active ? 'fill' : 'regular'} />
+      <span>{label}</span>
+    </button>
+  )
+}
+
+function Metric({ label, value, detail, icon: Icon }) {
+  return (
+    <div className="metric">
+      <div className="metric-label">
+        <span>{label}</span>
+        {Icon ? <Icon size={18} /> : null}
+      </div>
+      <strong>{value}</strong>
+      {detail ? <small>{detail}</small> : null}
+    </div>
+  )
+}
+
+function RankIcon({ tier, eager = false, decorative = false }) {
+  return (
+    <img
+      src={`${import.meta.env.BASE_URL}ranks-c/${tier.id}.png`}
+      alt={decorative ? '' : `${tier.name}段位徽章`}
+      aria-hidden={decorative || undefined}
+      loading={eager ? 'eager' : 'lazy'}
+      decoding="async"
+    />
+  )
+}
+
+function Field({ label, hint, children, className = '' }) {
+  return (
+    <label className={`field ${className}`}>
+      <span className="field-label">{label}</span>
+      {children}
+      {hint ? <small>{hint}</small> : null}
+    </label>
+  )
+}
+
+function Segmented({ value, options, onChange, label }) {
+  return (
+    <div className="segmented" role="group" aria-label={label}>
+      {options.map((option) => (
+        <button
+          type="button"
+          key={option.value}
+          className={value === option.value ? 'active' : ''}
+          onClick={() => onChange(option.value)}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function ProviderFields({
+  settings,
+  updateSettings,
+  models,
+  availableModels = [],
+  modelListState = { status: 'idle', count: 0, error: '' },
+  refreshAvailableModels,
+  accounts = [],
+  compact = false,
+}) {
+  const [showKey, setShowKey] = useState(false)
+  const subscription = isSubscriptionProvider(settings.provider)
+  const switchFormat = (apiFormat) => {
+    const preset = API_FORMATS[apiFormat]
+    if (!preset) return
+    updateSettings({
+      provider: 'custom',
+      endpoint: preset.endpoint,
+      model: preset.model,
+      apiFormat,
+      authMode: preset.authMode,
+      tokenParam: 'auto',
+    })
+  }
+  const selectableModels = availableModels.length ? availableModels : models
+  const listId = compact ? 'onboarding-model-catalog' : 'model-catalog'
+  const modelHint = modelListState.status === 'ready'
+    ? `已获取 ${modelListState.count} 个可用模型；未列出的模型 ID 仍可直接填写。价格按 OpenRouter 目录匹配。`
+    : modelListState.status === 'error'
+      ? modelListState.error
+      : '点击刷新获取可用模型，也可以直接填写模型 ID；价格按 OpenRouter 目录匹配。'
+
+  return (
+    <div className={`form-grid ${compact ? 'compact' : ''}`}>
+      <Field label="请求格式" className="span-2">
+        <select value={subscription ? 'subscription' : settings.apiFormat} onChange={(event) => switchFormat(event.target.value)}>
+          {subscription ? <option value="subscription" disabled>当前使用消费版订阅账号</option> : null}
+          {Object.entries(API_FORMATS).map(([id, format]) => (
+            <option value={id} key={id}>{format.label}</option>
+          ))}
+        </select>
+      </Field>
+      {subscription ? (
+        <>
+          <Field label="已连接账号">
+            <select value={settings.selectedAccountId} onChange={(event) => updateSettings({ selectedAccountId: event.target.value })}>
+              <option value="">请选择订阅账号</option>
+              {accounts.filter((account) => account.provider === accountProviderForSettings(settings.provider)).map((account) => (
+                <option value={account.id} key={account.id}>{account.displayName} {account.planType ? `· ${account.planType}` : ''}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="订阅模型">
+            <input type="text" list="subscription-model-catalog" value={settings.model} spellCheck="false" onChange={(event) => updateSettings({ model: event.target.value })} />
+            <datalist id="subscription-model-catalog">
+              {(SUBSCRIPTION_MODELS[settings.provider] || []).map((model) => <option value={model} key={model} />)}
+            </datalist>
+          </Field>
+        </>
+      ) : (
+        <>
+          <Field label="请求地址" className="span-2">
+            <input
+              type="url"
+              value={settings.endpoint}
+              spellCheck="false"
+              onChange={(event) => updateSettings({ endpoint: event.target.value })}
+              placeholder="https://api.example.com/v1/chat/completions"
+            />
+          </Field>
+          <Field label="模型 ID">
+            <div className="model-picker">
+              <input
+                type="text"
+                list={listId}
+                value={settings.model}
+                spellCheck="false"
+                onChange={(event) => updateSettings({ model: event.target.value })}
+                placeholder="provider/model-name"
+              />
+              <button type="button" disabled={modelListState.status === 'loading'} onClick={refreshAvailableModels}>
+                <ArrowClockwise className={modelListState.status === 'loading' ? 'spin' : ''} size={16} />
+                <span>{modelListState.status === 'loading' ? '获取中' : '刷新'}</span>
+              </button>
+            </div>
+            <small className={modelListState.status === 'error' ? 'field-error' : ''}>{modelHint}</small>
+            <datalist id={listId}>
+              {selectableModels.slice(0, 1000).map((model) => (
+                <option value={model.id} key={model.id}>{model.name}</option>
+              ))}
+            </datalist>
+          </Field>
+          <Field label="API Key" hint="加密保存，下次访问自动填充。">
+            <div className="input-with-action">
+              <input
+                type={showKey ? 'text' : 'password'}
+                value={settings.apiKey}
+                autoComplete="off"
+                spellCheck="false"
+                onChange={(event) => updateSettings({ apiKey: event.target.value })}
+                placeholder="sk-..."
+              />
+              <button type="button" aria-label={showKey ? '隐藏 API Key' : '显示 API Key'} onClick={() => setShowKey(!showKey)}>
+                {showKey ? <EyeSlash size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
+          </Field>
+        </>
+      )}
+    </div>
+  )
+}
+
+function BurnPanel({ settings, updateSettings, catalogState, session, onStart, onStop, price, accounts }) {
+  const preset = PROMPT_PRESETS.find((item) => item.id === settings.promptId) || PROMPT_PRESETS[0]
+  const target = settings.targetMode === 'tokens' ? Number(settings.targetTokens) : Number(settings.targetAmount)
+  const consumed = settings.targetMode === 'tokens' ? session.tokens : session.cost
+  const progress = percent(consumed, target)
+  const prompt = settings.promptId === 'custom' ? settings.customPrompt : preset.prompt
+  const promptReserve = guardedPromptEstimate(settings.systemPrompt, prompt)
+  const running = session.status === 'running' || session.status === 'stopping'
+  const isSubscription = isSubscriptionProvider(settings.provider)
+  const selectedAccount = accounts.find((account) => account.id === settings.selectedAccountId)
+  const canStart = Boolean(
+    settings.model &&
+      target > 0 &&
+      prompt &&
+      (isSubscription
+        ? selectedAccount
+        : settings.endpoint && (settings.apiKey || settings.authMode === 'none')),
+  )
+
+  return (
+    <div className="panel-page burn-page">
+      <header className="page-header">
+        <div>
+          <span className="page-kicker">消耗控制台</span>
+          <h1>把预算烧在明处。</h1>
+          <p>设定目标，选择任务，然后开始消耗。</p>
+        </div>
+        <div className="provider-chip">
+          <ShieldCheck size={19} />
+          <span>{isSubscription ? PROVIDERS[settings.provider]?.label : API_FORMATS[settings.apiFormat]?.label || '兼容 API'}</span>
+          <small>{isSubscription ? selectedAccount?.displayName || '等待连接账号' : settings.authMode === 'none' ? '无需密钥' : settings.apiKey ? '已配置密钥' : '等待密钥'}</small>
+        </div>
+      </header>
+
+      <div className="burn-layout">
+        <section className="control-column">
+          <div className="section-block target-block">
+            <div className="section-heading">
+              <div>
+                <h2>消耗目标</h2>
+                <p>接近目标时自动缩小单轮输出预算。</p>
+              </div>
+              <Segmented
+                label="消耗目标类型"
+                value={settings.targetMode}
+                options={isSubscription
+                  ? [{ value: 'tokens', label: '定 Token' }]
+                  : [
+                      { value: 'tokens', label: '定 Token' },
+                      { value: 'money', label: '定金额' },
+                    ]}
+                onChange={(targetMode) => updateSettings({ targetMode })}
+              />
+            </div>
+
+            <div className="target-input-row">
+              <div className="target-input-wrap">
+                <span>{settings.targetMode === 'tokens' ? 'TOKENS' : 'USD'}</span>
+                <input
+                  aria-label={settings.targetMode === 'tokens' ? '目标 Token 数' : '目标金额'}
+                  type="number"
+                  min="1"
+                  step={settings.targetMode === 'tokens' ? '1000' : '0.1'}
+                  value={settings.targetMode === 'tokens' ? settings.targetTokens : settings.targetAmount}
+                  onChange={(event) =>
+                    updateSettings(
+                      settings.targetMode === 'tokens'
+                        ? { targetTokens: event.target.value }
+                        : { targetAmount: event.target.value },
+                    )
+                  }
+                />
+              </div>
+              <div className="target-meta">
+                <div>
+                  <span>当前价格</span>
+                  <strong>{isSubscription ? '包含在订阅额度中' : price.output ? `${formatMoney(price.output * 1_000_000, 2)} / M 输出` : '未匹配'}</strong>
+                </div>
+                <div>
+                  <span>输入预留</span>
+                  <strong>约 {formatTokens(promptReserve)} / 轮</strong>
+                </div>
+              </div>
+            </div>
+            <div className="price-source">
+              <Info size={16} />
+              <span>
+                {isSubscription
+                  ? `${PROVIDERS[settings.provider].label} 使用上游输出上限与 usage 逐轮逼近；隐藏推理、输入分词和供应商计费仍可能造成偏差。`
+                  : `${price.source}。金额模式是预算保护估算，最终账单以供应商为准。${catalogState === 'loading' ? ' 正在刷新模型目录。' : ''}`}
+              </span>
+            </div>
+          </div>
+
+          <div className="section-block prompt-block">
+            <div className="section-heading">
+              <div>
+                <h2>请求内容</h2>
+                <p>选择持续输出型任务，或完全自定义。</p>
+              </div>
+            </div>
+            <div className="prompt-options">
+              {PROMPT_PRESETS.map((item) => (
+                <button
+                  type="button"
+                  className={`prompt-option ${settings.promptId === item.id ? 'active' : ''}`}
+                  key={item.id}
+                  onClick={() => updateSettings({ promptId: item.id })}
+                >
+                  <span className="prompt-check">{settings.promptId === item.id ? <Check size={15} weight="bold" /> : null}</span>
+                  <span>
+                    <strong>{item.name}</strong>
+                    <small>{item.description}</small>
+                  </span>
+                  <em>{item.tag}</em>
+                </button>
+              ))}
+            </div>
+            {settings.promptId === 'custom' ? (
+              <Field label="自定义 Prompt" className="custom-prompt-field">
+                <textarea
+                  rows="6"
+                  value={settings.customPrompt}
+                  onChange={(event) => updateSettings({ customPrompt: event.target.value })}
+                  placeholder="输入希望模型持续执行的任务..."
+                />
+              </Field>
+            ) : (
+              <div className="prompt-preview">
+                <span>将发送</span>
+                <p>{preset.prompt}</p>
+              </div>
+            )}
+          </div>
+        </section>
+
+        <aside className="run-column">
+          <div className={`run-console status-${session.status}`}>
+            <div className="run-topline">
+              <span className="run-status">
+                {running ? <span className="live-mark" /> : null}
+                {session.message}
+              </span>
+              <span>{session.rounds} 轮</span>
+            </div>
+
+            <div className="progress-ring" style={{ '--progress': `${progress * 3.6}deg` }}>
+              <div>
+                <strong>{progress.toFixed(progress < 10 ? 1 : 0)}%</strong>
+                <span>{settings.targetMode === 'tokens' ? formatTokens(session.tokens) : formatMoney(session.cost)}</span>
+              </div>
+            </div>
+
+            <div className="run-stats">
+              <div>
+                <span>输入</span>
+                <strong>{formatTokens(session.input)}</strong>
+              </div>
+              <div>
+                <span>输出</span>
+                <strong>{formatTokens(session.output)}</strong>
+              </div>
+              <div>
+                <span>成本</span>
+                <strong>{formatMoney(session.cost)}</strong>
+              </div>
+              <div>
+                <span>核验</span>
+                <strong>{session.rounds ? `${session.verifiedRounds}/${session.rounds}` : '0/0'}</strong>
+              </div>
+            </div>
+
+            {session.logs.length ? (
+              <div className="run-log" aria-live="polite">
+                {session.logs.slice(-4).map((log) => (
+                  <div key={log.id}>
+                    <span>{log.label}</span>
+                    <strong>{log.value}</strong>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="run-empty">
+                <Gauge size={26} />
+                <p>启动后，这里显示每轮的真实 usage 与预算变化。</p>
+              </div>
+            )}
+
+            {running ? (
+              <button className="stop-button" type="button" onClick={onStop}>
+                <Stop size={19} weight="fill" />
+                立即停止
+              </button>
+            ) : (
+              <button className="start-button" type="button" disabled={!canStart} onClick={onStart}>
+                <Play size={19} weight="fill" />
+                开始消耗
+              </button>
+            )}
+            {!canStart && !running ? <small className="button-hint">{isSubscription ? '请先在配置中连接并选择对应的订阅账号' : '请补齐 API、模型、密钥和请求内容'}</small> : null}
+          </div>
+
+          <div className="guard-note">
+            <ShieldCheck size={22} />
+            <div>
+              <strong>软上限保护</strong>
+              <p>按回执记账，逐轮收缩。供应商分词与计费发生在远端，无法保证最后 1 token 的绝对命中。</p>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </div>
+  )
+}
+
+function StatsPanel({ runs, settings, leaderboardVersion, participantLabel }) {
+  const [boardPeriod, setBoardPeriod] = useState('day')
+  const [boardScope, setBoardScope] = useState('global')
+  const [boardRefresh, setBoardRefresh] = useState(0)
+  const [viewedTierId, setViewedTierId] = useState('')
+  const [globalBoard, setGlobalBoard] = useState({ status: 'loading', entries: [], context: null, scope: 'global', error: '' })
+  const [rankProfile, setRankProfile] = useState({ status: 'loading', data: null, error: '' })
+  const today = todayKey()
+  const todayRuns = runs.filter((run) => run.date === today)
+  const todayTokens = todayRuns.reduce((sum, run) => sum + run.tokens, 0)
+  const totalTokens = runs.reduce((sum, run) => sum + run.tokens, 0)
+  const totalCost = runs.reduce((sum, run) => sum + run.cost, 0)
+  const totalRounds = runs.reduce((sum, run) => sum + run.rounds, 0)
+  const days = Array.from({ length: 7 }, (_, index) => {
+    const date = new Date()
+    date.setDate(date.getDate() - (6 - index))
+    const key = todayKey(date)
+    const dateRuns = runs.filter((run) => run.date === key)
+    return {
+      key,
+      label: date.toLocaleDateString('zh-CN', { weekday: 'short' }),
+      tokens: dateRuns.reduce((sum, run) => sum + run.tokens, 0),
+      runs: dateRuns,
+    }
+  })
+  const recentRuns = days.flatMap((day) => day.runs)
+  const recentTokens = days.reduce((sum, day) => sum + day.tokens, 0)
+  const modelTotals = recentRuns.reduce((totals, run) => {
+    const model = String(run.model || '未标注模型')
+    totals[model] = (totals[model] || 0) + Number(run.tokens || 0)
+    return totals
+  }, {})
+  const rankedModels = Object.entries(modelTotals)
+    .map(([model, tokens]) => ({ model, tokens }))
+    .sort((a, b) => b.tokens - a.tokens)
+    .slice(0, 4)
+  const rankedModelNames = new Set(rankedModels.map((item) => item.model))
+  const stackedDays = days.map((day) => ({
+    ...day,
+    segments: rankedModels.map((item, index) => ({
+      model: item.model,
+      tone: index,
+      tokens: day.runs
+        .filter((run) => String(run.model || '未标注模型') === item.model)
+        .reduce((sum, run) => sum + Number(run.tokens || 0), 0),
+    })),
+    other: day.runs
+      .filter((run) => !rankedModelNames.has(String(run.model || '未标注模型')))
+      .reduce((sum, run) => sum + Number(run.tokens || 0), 0),
+  }))
+  const dailyPeak = Math.max(...stackedDays.map((day) => day.tokens), 1)
+  const hasChartData = stackedDays.some((day) => day.tokens > 0)
+  const localLeaderboard = [...runs].sort((a, b) => b.tokens - a.tokens).slice(0, 5)
+  const boardSource = leaderboardSourceLabel(settings.leaderboardApiUrl)
+
+  useEffect(() => {
+    let active = true
+    setGlobalBoard((current) => ({ ...current, status: 'loading', error: '' }))
+    getLeaderboard(settings.leaderboardApiUrl, boardPeriod, boardScope)
+      .then((payload) => {
+        if (active) {
+          setGlobalBoard({
+            status: 'ready',
+            entries: payload.entries || [],
+            context: payload.context || null,
+            scope: payload.scope || 'global',
+            error: '',
+          })
+        }
+      })
+      .catch((error) => {
+        if (active) setGlobalBoard({ status: 'error', entries: [], context: null, scope: 'global', error: error.message })
+      })
+    return () => {
+      active = false
+    }
+  }, [settings.leaderboardApiUrl, boardPeriod, boardScope, boardRefresh, leaderboardVersion])
+
+  useEffect(() => {
+    let active = true
+    setRankProfile((current) => ({ ...current, status: 'loading', error: '' }))
+    getLeaderboardProfile(settings.leaderboardApiUrl)
+      .then((data) => {
+        if (active) setRankProfile({ status: 'ready', data, error: '' })
+      })
+      .catch((error) => {
+        if (active) setRankProfile({ status: 'error', data: null, error: error.message })
+      })
+    return () => {
+      active = false
+    }
+  }, [settings.leaderboardApiUrl, boardRefresh, leaderboardVersion])
+
+  const profileData = rankProfile.status === 'ready' ? rankProfile.data : null
+  const currentTier = profileData?.tier || rankForTokens(totalTokens)
+  const rankTokenTotal = profileData?.totalTokens ?? totalTokens
+  const currentTierIndex = Math.max(0, RANK_TIERS.findIndex((tier) => tier.id === currentTier.id))
+  const requestedTierIndex = viewedTierId ? RANK_TIERS.findIndex((tier) => tier.id === viewedTierId) : currentTierIndex
+  const viewedTierIndex = requestedTierIndex >= 0 ? requestedTierIndex : currentTierIndex
+  const viewedTier = RANK_TIERS[viewedTierIndex]
+  const isViewingCurrentTier = viewedTier.id === currentTier.id
+  const viewedTierUnlocked = rankTokenTotal >= viewedTier.min
+  const viewedTierRemaining = Math.max(0, viewedTier.min - rankTokenTotal)
+  const viewedTierProgress = isViewingCurrentTier
+    ? currentTier.progress
+    : viewedTierUnlocked
+      ? 100
+      : Math.min(100, Math.max(0, (rankTokenTotal / Math.max(1, viewedTier.min)) * 100))
+  const scopeOptions = globalBoard.context?.scopes || profileData?.context?.scopes || [{ id: 'global', label: '全球' }]
+  const rankScopes = profileData?.ranks || scopeOptions.map((scope) => ({ ...scope, rank: null, tokens: 0 }))
+  const globalRank = rankScopes.find((item) => item.scope === 'global')?.rank || null
+  const rankDirectory = profileData?.context?.directory || globalBoard.context?.directory || []
+  const deploymentUrl = new URL('.', window.location.href).href.replace(/\/$/, '')
+  const rankingPhrase = globalRank ? `我位列全球第 ${globalRank} 名` : '我正在冲击全球排行榜'
+  const shareText = `我今天用 Token Killer 消耗了 ${formatTokens(todayTokens)} 个无意义 Token，累计 ${formatTokens(totalTokens)}。${rankingPhrase}，你也快来【${deploymentUrl}】浪费 Token 吧。`
+  const shareToX = () => {
+    window.open(`https://x.com/intent/post?text=${encodeURIComponent(shareText)}`, '_blank', 'noopener,noreferrer')
+  }
+  const copyShare = async () => {
+    await navigator.clipboard.writeText(shareText)
+  }
+
+  return (
+    <div className="panel-page stats-page">
+      <header className="page-header">
+        <div>
+          <span className="page-kicker">统计与排行</span>
+          <h1>每一个 token 都有记录。</h1>
+          <p>查看消耗趋势、运行记录与全网排行。</p>
+        </div>
+        <button className="secondary-button" type="button" onClick={() => exportShareCard({ todayTokens, totalTokens, totalCost, participantLabel, globalRank, tier: currentTier })}>
+          <DownloadSimple size={18} />
+          导出分享卡
+        </button>
+      </header>
+
+      <div className="metrics-grid">
+        <Metric label="今日消耗" value={formatTokens(todayTokens)} detail={`${todayRuns.length} 次运行`} icon={Fire} />
+        <Metric label="累计消耗" value={formatTokens(totalTokens)} detail={`${runs.length} 次运行`} icon={Database} />
+        <Metric label="估算成本" value={formatMoney(totalCost)} detail="按运行时价格" icon={ChartBar} />
+        <Metric label="请求轮数" value={formatTokens(totalRounds)} detail="顺序执行" icon={ListChecks} />
+      </div>
+
+      <section className={`rank-overview section-block rank-${currentTier.id}`}>
+        <div className="rank-identity">
+          <div className="rank-crest-controls">
+            <button
+              type="button"
+              aria-label="查看上一段位"
+              disabled={viewedTierIndex === 0}
+              onClick={() => setViewedTierId(RANK_TIERS[viewedTierIndex - 1].id)}
+            >
+              <CaretLeft size={16} weight="bold" />
+            </button>
+            <div className="rank-crest">
+              <RankIcon tier={viewedTier} eager />
+            </div>
+            <button
+              type="button"
+              aria-label="查看下一段位"
+              disabled={viewedTierIndex === RANK_TIERS.length - 1}
+              onClick={() => setViewedTierId(RANK_TIERS[viewedTierIndex + 1].id)}
+            >
+              <CaretRight size={16} weight="bold" />
+            </button>
+          </div>
+          <div className="rank-summary">
+            <span>{isViewingCurrentTier ? '当前段位' : '查看段位'}</span>
+            <h2>{isViewingCurrentTier && !currentTier.infiniteStars ? currentTier.fullName : viewedTier.name}</h2>
+            {isViewingCurrentTier ? (
+              <div
+                className={`rank-stars ${currentTier.infiniteStars ? 'infinite' : ''}`}
+                aria-label={currentTier.infiniteStars ? `${currentTier.name} ${currentTier.stars}` : `${currentTier.stars} 星，共 ${currentTier.maxStars} 星`}
+              >
+                {currentTier.infiniteStars ? (
+                  <><Star className="filled" size={17} weight="fill" /><strong>{currentTier.stars}</strong></>
+                ) : Array.from({ length: currentTier.maxStars }, (_, index) => (
+                  <Star className={index < currentTier.stars ? 'filled' : ''} key={index} size={17} weight={index < currentTier.stars ? 'fill' : 'regular'} />
+                ))}
+              </div>
+            ) : null}
+            <div className="rank-requirement">
+              <span>{isViewingCurrentTier && currentTier.infiniteStars ? '本星门槛' : '晋级门槛'}</span>
+              <b>
+                {isViewingCurrentTier && currentTier.infiniteStars
+                  ? `${formatTokens(currentTier.threshold)} Token`
+                  : viewedTier.min
+                    ? `${formatTokens(viewedTier.min)} Token`
+                    : '起始段位'}
+              </b>
+            </div>
+            <div className="rank-progress" aria-hidden="true"><i style={{ width: `${viewedTierProgress}%` }} /></div>
+            <small>
+              {isViewingCurrentTier
+                ? currentTier.nextName
+                  ? `距离 ${currentTier.nextName} 还差 ${formatTokens(currentTier.tokensToNext)} Token`
+                  : '已经抵达最高段位'
+                : viewedTierUnlocked
+                  ? `已达到 ${viewedTier.name}，当前累计 ${formatTokens(rankTokenTotal)} Token`
+                  : `距离 ${viewedTier.name} 还差 ${formatTokens(viewedTierRemaining)} Token`}
+            </small>
+          </div>
+        </div>
+
+        <div className="rank-regions">
+          <div className="rank-region-head">
+            <div><MapPin size={18} /><span>当前赛区</span></div>
+            <strong>{rankDirectory.length ? rankDirectory.join(' / ') : '等待地区榜'}</strong>
+          </div>
+          <div className="rank-scope-grid">
+            {rankScopes.map((item) => (
+              <div key={item.scope}>
+                <span>{item.label}</span>
+                <strong>{item.rank ? `第 ${item.rank} 名` : '未上榜'}</strong>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="rank-ladder">
+          <div className="rank-ladder-head">
+            <div>
+              <span>段位图鉴</span>
+              <strong>
+                {viewedTier.max
+                  ? `${viewedTier.name}：${formatTokens(viewedTier.min)} 至 ${formatTokens(viewedTier.max)} Token`
+                  : `${viewedTier.name}：${formatTokens(viewedTier.min)} Token 起，每 ${formatTokens(viewedTier.starStep)} Token 增加 1 星`}
+              </strong>
+            </div>
+            {!isViewingCurrentTier ? (
+              <button type="button" onClick={() => setViewedTierId('')}>返回当前段位</button>
+            ) : null}
+          </div>
+          <div className="rank-ladder-track" role="group" aria-label="全部段位">
+            {RANK_TIERS.map((tier) => (
+              <button
+                className={`${tier.id === viewedTier.id ? 'active' : ''} ${tier.id === currentTier.id ? 'current' : ''}`}
+                key={tier.id}
+                type="button"
+                aria-pressed={tier.id === viewedTier.id}
+                onClick={() => setViewedTierId(tier.id === currentTier.id ? '' : tier.id)}
+              >
+                <RankIcon tier={tier} decorative />
+                <span>{tier.name}</span>
+                <small>
+                  {tier.id === currentTier.id
+                    ? currentTier.infiniteStars
+                      ? `当前 ${currentTier.stars} 星`
+                      : `当前，门槛 ${formatTokens(tier.min)}`
+                    : tier.max === null
+                      ? `${formatTokens(tier.min)} 起 / ${formatTokens(tier.starStep)} 一星`
+                    : tier.min
+                      ? `需 ${formatTokens(tier.min)}`
+                      : '起始段位'}
+                </small>
+              </button>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <div className="stats-layout">
+        <section className="chart-section section-block">
+          <div className="section-heading">
+            <div>
+              <h2>热门模型</h2>
+              <p>近 7 天 Token 用量与模型份额。</p>
+            </div>
+            <span className="rankings-window"><span />最近 7 天</span>
+          </div>
+
+          <div className="model-volume-chart" aria-label="近 7 天各模型 Token 用量堆叠图">
+            <div className="model-chart-scale" aria-hidden="true">
+              <span>{hasChartData ? formatTokens(dailyPeak) : ''}</span>
+              <span>{hasChartData ? formatTokens(dailyPeak / 2) : ''}</span>
+              <span>0</span>
+            </div>
+            <div className="model-chart-main">
+              <div className="model-chart-grid" aria-hidden="true"><i /><i /><i /></div>
+              <div className="stacked-bars">
+                {stackedDays.map((day) => (
+                  <div className="stacked-day" key={day.key} title={`${day.label} ${formatTokens(day.tokens)} Token`}>
+                    <span className="stacked-value">{day.tokens ? formatTokens(day.tokens) : ''}</span>
+                    <div className="stacked-column">
+                      {day.segments.map((segment) => segment.tokens ? (
+                        <i
+                          className={`model-segment tone-${segment.tone}`}
+                          key={segment.model}
+                          style={{ height: `${Math.max(2, (segment.tokens / dailyPeak) * 100)}%` }}
+                        />
+                      ) : null)}
+                      {day.other ? <i className="model-segment tone-other" style={{ height: `${Math.max(2, (day.other / dailyPeak) * 100)}%` }} /> : null}
+                    </div>
+                    <span className="stacked-label">{day.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {rankedModels.length ? (
+            <ol className="model-ranking-list" aria-label="模型 Token 排行">
+              {rankedModels.map((item, index) => (
+                <li key={item.model}>
+                  <span className="model-rank">{String(index + 1).padStart(2, '0')}</span>
+                  <i className={`model-swatch tone-${index}`} />
+                  <div>
+                    <strong>{item.model}</strong>
+                    <small>{recentTokens ? `${((item.tokens / recentTokens) * 100).toFixed(1)}% 份额` : '0% 份额'}</small>
+                  </div>
+                  <b>{formatTokens(item.tokens)}</b>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <div className="model-ranking-empty">
+              <ChartBar size={24} />
+              <span>完成运行后，这里会生成模型趋势与排行。</span>
+            </div>
+          )}
+        </section>
+
+        <section className="share-card-section">
+          <div className="share-card">
+            <div className="share-card-head">
+              <Fire size={24} weight="fill" />
+              <span>TOKEN KILLER</span>
+            </div>
+            <strong>{formatTokens(todayTokens)}</strong>
+            <p>今日无意义消耗 TOKEN</p>
+            <div className="share-card-rank">
+              <Crown size={16} weight="fill" />
+              <span>{globalRank ? `全球第 ${globalRank} 名` : '冲击全球榜'}</span>
+              <b>{currentTier.fullName}</b>
+            </div>
+            <div className="share-card-foot">
+              <span>累计 {formatTokens(totalTokens)}</span>
+              <span>{participantLabel}</span>
+            </div>
+          </div>
+          <div className="share-actions">
+            <button type="button" onClick={shareToX}>
+              <XLogo size={18} />
+              分享到 X
+            </button>
+            <button type="button" onClick={copyShare} aria-label="复制分享文案">
+              <Copy size={18} />
+            </button>
+          </div>
+        </section>
+      </div>
+
+      <div className="lower-stats-grid">
+        <section className="history-section section-block">
+          <div className="section-heading">
+            <div>
+              <h2>运行记录</h2>
+              <p>展示最近 500 次运行。</p>
+            </div>
+          </div>
+          {runs.length ? (
+            <div className="run-table">
+              {runs.slice(0, 8).map((run) => (
+                <div className="run-row" key={run.id}>
+                  <div>
+                    <strong>{run.model}</strong>
+                    <span>{new Date(run.startedAt).toLocaleString('zh-CN')}</span>
+                  </div>
+                  <div>
+                    <strong>{formatTokens(run.tokens)}</strong>
+                    <span>{run.verified ? '已核验' : '含估算'}</span>
+                  </div>
+                  <div>
+                    <strong>{formatMoney(run.cost)}</strong>
+                    <span>{formatDuration(run.duration)}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="empty-state">
+              <ChartBar size={28} />
+              <strong>还没有运行记录</strong>
+              <p>完成一次消耗后，统计会自动出现在这里。</p>
+            </div>
+          )}
+        </section>
+
+        <section className="leaderboard-section section-block">
+          <div className="section-heading">
+            <div>
+              <h2>{globalBoard.status === 'error' ? '个人排行' : '全网排行榜'}</h2>
+              <p className="leaderboard-source">数据来源 <strong>{boardSource}</strong></p>
+            </div>
+            <button className="icon-button" type="button" aria-label="刷新排行榜" onClick={() => setBoardRefresh((value) => value + 1)}>
+              <ArrowClockwise size={16} />
+            </button>
+          </div>
+          {globalBoard.status !== 'error' ? (
+            <div className="leaderboard-filters">
+              {scopeOptions.length > 1 ? (
+                <div className="leaderboard-scope">
+                  <Segmented
+                    label="排行榜地区"
+                    value={boardScope}
+                    options={scopeOptions.map((scope) => ({ value: scope.id, label: scope.label }))}
+                    onChange={setBoardScope}
+                  />
+                </div>
+              ) : null}
+              <Segmented
+                label="排行榜周期"
+                value={boardPeriod}
+                options={[{ value: 'day', label: '今日' }, { value: 'all', label: '总榜' }]}
+                onChange={setBoardPeriod}
+              />
+            </div>
+          ) : null}
+          {globalBoard.status === 'loading' ? (
+            <div className="empty-state small">
+              <ArrowClockwise className="spin" size={24} />
+              <strong>正在同步全网榜</strong>
+            </div>
+          ) : null}
+          {globalBoard.status === 'ready' && globalBoard.entries.length ? (
+            <ol className="leaderboard">
+              {globalBoard.entries.map((entry) => (
+                <li className={entry.participantLabel === participantLabel ? 'is-current' : ''} key={`${boardPeriod}-${entry.rank}-${entry.participantLabel || ''}`}>
+                  <span>{String(entry.rank).padStart(2, '0')}</span>
+                  <div className="leaderboard-person">
+                    <strong>{participantLabelFromEntry(entry.participantLabel, entry.rank)}</strong>
+                    <small>{entry.tier?.fullName || rankForTokens(entry.tokens).fullName}，{entry.runs} 次运行</small>
+                  </div>
+                  <div className="leaderboard-entry-stats">
+                    <span><small>Token</small><b>{formatTokens(entry.tokens)}</b></span>
+                    <span><small>轮数</small><b>{formatTokens(entry.rounds)}</b></span>
+                    <span><small>消费</small><b>{formatMoney(entry.cost)}</b></span>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          ) : null}
+          {globalBoard.status === 'ready' && !globalBoard.entries.length ? (
+            <div className="empty-state small">
+              <Fire size={26} />
+              <strong>还没人上榜，第一把火留给你</strong>
+            </div>
+          ) : null}
+          {globalBoard.status === 'error' && localLeaderboard.length ? (
+            <ol className="leaderboard">
+              {localLeaderboard.map((run, index) => (
+                <li key={run.id}>
+                  <span>{String(index + 1).padStart(2, '0')}</span>
+                  <div className="leaderboard-person"><strong>{run.model}</strong><small>{run.date}</small></div>
+                  <div className="leaderboard-entry-stats">
+                    <span><small>Token</small><b>{formatTokens(run.tokens)}</b></span>
+                    <span><small>轮数</small><b>{formatTokens(run.rounds)}</b></span>
+                    <span><small>消费</small><b>{formatMoney(run.cost)}</b></span>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          ) : null}
+          {globalBoard.status === 'error' && !localLeaderboard.length ? (
+            <div className="empty-state small"><Fire size={26} /><strong>榜单还空着</strong></div>
+          ) : null}
+          <div className="constraint-note">
+            <Info size={17} />
+            <span>
+              {globalBoard.status === 'error'
+                ? `${globalBoard.error || '全网榜不可用'}。可在配置中填写排行榜服务地址。`
+                : '全网榜只收录每轮都包含 usage 的完整运行。'}
+            </span>
+          </div>
+        </section>
+      </div>
+    </div>
+  )
+}
+
+function SubscriptionAccountManager({ settings, updateSettings, accountsState, reloadAccounts, compact = false }) {
+  const [login, setLogin] = useState({ status: 'idle', provider: '', error: '', callbackValue: '' })
+  const [geminiProjectId, setGeminiProjectId] = useState('')
+  const [deletingId, setDeletingId] = useState('')
+
+  useEffect(() => {
+    if (login.status !== 'waiting_device' || login.provider !== 'openai') return undefined
+    let cancelled = false
+    let timer
+
+    const poll = async () => {
+      try {
+        const result = await pollChatGPTDeviceLogin(settings.subscriptionApiUrl, login)
+        if (cancelled) return
+        if (result.status === 'complete') {
+          setLogin((current) => ({ ...current, status: 'complete', account: result.account, error: '' }))
+          updateSettings({ provider: 'chatgpt', targetMode: 'tokens', selectedAccountId: result.account.id })
+          await reloadAccounts()
+          return
+        }
+        timer = window.setTimeout(poll, Math.max(2, Number(result.intervalSeconds || login.intervalSeconds || 5)) * 1000)
+      } catch (error) {
+        if (!cancelled) setLogin((current) => ({ ...current, status: 'error', error: error.message }))
+      }
+    }
+
+    timer = window.setTimeout(poll, Math.max(2, Number(login.intervalSeconds || 5)) * 1000)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [login, settings.subscriptionApiUrl, updateSettings, reloadAccounts])
+
+  const startLogin = async (provider) => {
+    setLogin({ status: 'starting', provider, error: '', callbackValue: '' })
+    try {
+      if (provider === 'openai') {
+        const result = await startChatGPTDeviceLogin(settings.subscriptionApiUrl)
+        setLogin({ ...result, status: 'waiting_device', error: '', callbackValue: '' })
+        window.open(result.verificationUrl, '_blank', 'noopener,noreferrer')
+        return
+      }
+      const result = provider === 'claude'
+        ? await startClaudeLogin()
+        : provider === 'gemini'
+          ? await startGeminiLogin(settings.subscriptionApiUrl, geminiProjectId)
+          : await startGrokLogin()
+      setLogin({ ...result, status: 'waiting_callback', error: '', callbackValue: '' })
+      window.open(result.authorizationUrl, '_blank', 'noopener,noreferrer')
+    } catch (error) {
+      setLogin({ status: 'error', provider, error: error.message, callbackValue: '' })
+    }
+  }
+
+  const finishLogin = async () => {
+    setLogin((current) => ({ ...current, status: 'exchanging', error: '' }))
+    try {
+      const account = login.provider === 'claude'
+        ? await finishClaudeLogin(settings.subscriptionApiUrl, login, login.callbackValue)
+        : login.provider === 'gemini'
+          ? await finishGeminiLogin(settings.subscriptionApiUrl, login, login.callbackValue)
+          : await finishGrokLogin(settings.subscriptionApiUrl, login, login.callbackValue)
+      const provider = ACCOUNT_PROVIDER_TO_SETTINGS[account.provider]
+      setLogin((current) => ({ ...current, status: 'complete', account, error: '' }))
+      updateSettings({ provider, targetMode: 'tokens', selectedAccountId: account.id, model: PROVIDERS[provider].model })
+      await reloadAccounts()
+    } catch (error) {
+      setLogin((current) => ({ ...current, status: 'waiting_callback', error: error.message }))
+    }
+  }
+
+  const removeAccount = async (account) => {
+    if (!window.confirm(`断开 ${account.displayName}？已保存的登录信息会被移除。`)) return
+    setDeletingId(account.id)
+    try {
+      await deleteSubscriptionAccount(settings.subscriptionApiUrl, account.id)
+      if (settings.selectedAccountId === account.id) updateSettings({ selectedAccountId: '' })
+      await reloadAccounts()
+    } catch (error) {
+      setLogin((current) => ({ ...current, status: 'error', error: error.message }))
+    } finally {
+      setDeletingId('')
+    }
+  }
+
+  const accounts = accountsState.accounts || []
+  return (
+    <div className={`account-manager ${compact ? 'compact' : ''}`}>
+      <div className="form-grid account-worker-field">
+        <Field label="订阅服务地址" hint="同域部署可留空；分开部署时填写服务 URL。" className="span-2">
+          <input type="url" value={settings.subscriptionApiUrl} spellCheck="false" onChange={(event) => updateSettings({ subscriptionApiUrl: event.target.value })} placeholder="同域 /api" />
+        </Field>
+      </div>
+
+      <div className="subscription-callout oauth-callout">
+        <div>
+          <span className="status-pill">SUBSCRIPTION LOGIN</span>
+          <strong>连接你自己的消费版订阅</strong>
+          <p>选择平台完成登录，连接后可直接使用订阅模型。</p>
+        </div>
+        <div className="oauth-provider-actions">
+          <button className="secondary-button" type="button" disabled={login.status === 'starting' || login.status === 'waiting_device'} onClick={() => startLogin('openai')}>ChatGPT</button>
+          <button className="secondary-button" type="button" disabled={login.status === 'starting'} onClick={() => startLogin('claude')}>Claude</button>
+          <button className="secondary-button" type="button" disabled={login.status === 'starting'} onClick={() => startLogin('gemini')}>Gemini</button>
+          <button className="secondary-button" type="button" disabled={login.status === 'starting'} onClick={() => startLogin('grok')}>Grok</button>
+        </div>
+      </div>
+
+      <div className="form-grid oauth-project-field">
+        <Field label="Gemini Project ID（可选）" hint="Code Assist 未自动返回 project 时填写后重新授权。" className="span-2">
+          <input value={geminiProjectId} spellCheck="false" onChange={(event) => setGeminiProjectId(event.target.value)} placeholder="your-google-cloud-project" />
+        </Field>
+      </div>
+
+      {login.status === 'waiting_device' ? (
+        <div className="device-login-card" aria-live="polite">
+          <div>
+            <span>在 OpenAI 页面输入设备码</span>
+            <strong>{login.userCode}</strong>
+            <small>完成授权后本页会自动检测并保存账号。</small>
+          </div>
+          <div className="device-login-actions">
+            <button className="text-button" type="button" onClick={() => navigator.clipboard.writeText(login.userCode)}><Copy size={16} />复制代码</button>
+            <a className="secondary-button" href={login.verificationUrl} target="_blank" rel="noreferrer">打开登录页</a>
+          </div>
+        </div>
+      ) : null}
+      {login.status === 'waiting_callback' || login.status === 'exchanging' ? (
+        <div className="callback-login-card" aria-live="polite">
+          <div>
+            <span>{login.provider === 'grok' ? '授权结束后复制地址栏中的完整回调地址' : '完成授权后复制页面显示的授权码或地址'}</span>
+            <strong>{login.provider === 'claude' ? 'Claude 回调码' : login.provider === 'gemini' ? 'Gemini 授权码' : 'Grok 回调 URL'}</strong>
+            <small>请保持此页面打开，完成后粘贴返回内容。</small>
+          </div>
+          <textarea
+            rows="3"
+            value={login.callbackValue}
+            spellCheck="false"
+            onChange={(event) => setLogin((current) => ({ ...current, callbackValue: event.target.value }))}
+            placeholder="粘贴授权码或完整回调 URL"
+          />
+          <div className="device-login-actions">
+            <a className="text-button" href={login.authorizationUrl} target="_blank" rel="noreferrer">重新打开授权页</a>
+            <button className="secondary-button" type="button" disabled={!login.callbackValue.trim() || login.status === 'exchanging'} onClick={finishLogin}>
+              {login.status === 'exchanging' ? '正在换取凭据…' : '完成连接'}
+            </button>
+          </div>
+        </div>
+      ) : null}
+      {login.status === 'complete' ? <div className="inline-success"><Check size={17} weight="bold" />已连接 {login.account?.displayName}</div> : null}
+      {login.error ? <div className="inline-error">{login.error}</div> : null}
+
+      <div className="account-list-head">
+        <span>已连接账号</span>
+        <button className="text-button" type="button" onClick={reloadAccounts} disabled={accountsState.status === 'loading'}>
+          <ArrowClockwise size={15} />刷新
+        </button>
+      </div>
+      {accounts.length ? (
+        <div className="account-list">
+          {accounts.map((account) => (
+            <div className={settings.selectedAccountId === account.id ? 'selected' : ''} key={account.id}>
+              <button className="account-select" type="button" onClick={() => {
+                const provider = ACCOUNT_PROVIDER_TO_SETTINGS[account.provider]
+                updateSettings({ provider, targetMode: 'tokens', selectedAccountId: account.id, model: settings.provider === provider ? settings.model : PROVIDERS[provider].model })
+              }}>
+                <span className="account-provider-mark">{account.provider.slice(0, 2).toUpperCase()}</span>
+                <span><strong>{account.displayName}</strong><small>{account.planType || account.provider} · 自动续期</small></span>
+                {settings.selectedAccountId === account.id ? <Check size={18} weight="bold" /> : null}
+              </button>
+              <button className="account-delete" type="button" aria-label={`断开 ${account.displayName}`} disabled={deletingId === account.id} onClick={() => removeAccount(account)}><Trash size={17} /></button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="account-empty">{accountsState.status === 'loading' ? '正在读取账号…' : accountsState.error || '尚未连接消费版账号'}</div>
+      )}
+      <div className="constraint-note">
+        <Info size={17} />
+        <span>凭据不会出现在排行榜或分享内容中。清除站点数据会同时移除已连接账号。</span>
+      </div>
+    </div>
+  )
+}
+
+function SettingsPanel({
+  settings,
+  updateSettings,
+  models,
+  availableModels,
+  modelListState,
+  refreshAvailableModels,
+  catalogState,
+  refreshCatalog,
+  runs,
+  onClear,
+  accountsState,
+  reloadAccounts,
+  participantLabel,
+}) {
+  return (
+    <div className="panel-page settings-page">
+      <header className="page-header">
+        <div>
+          <span className="page-kicker">配置</span>
+          <h1>凭证归你掌控。</h1>
+          <p>设置请求、账号与消耗策略。</p>
+        </div>
+      </header>
+
+      <section className="settings-section section-block">
+        <div className="settings-section-title">
+          <Key size={22} />
+          <div>
+            <h2>请求格式与鉴权</h2>
+            <p>选择请求协议，填写兼容地址和凭据。</p>
+          </div>
+        </div>
+        <ProviderFields
+          settings={settings}
+          updateSettings={updateSettings}
+          models={models}
+          availableModels={availableModels}
+          modelListState={modelListState}
+          refreshAvailableModels={refreshAvailableModels}
+          accounts={accountsState.accounts}
+        />
+        {!isSubscriptionProvider(settings.provider) ? (
+          <div className="catalog-line">
+            <span className={`catalog-status ${catalogState}`}>{catalogState === 'ready' ? 'OpenRouter 价格目录已更新' : catalogState === 'error' ? 'OpenRouter 价格目录不可用' : '正在更新 OpenRouter 价格目录'}</span>
+            <button className="text-button" type="button" onClick={refreshCatalog}>
+              <ArrowClockwise size={16} />
+              刷新价格
+            </button>
+          </div>
+        ) : null}
+      </section>
+
+      <section className="settings-section section-block subscription-section">
+        <div className="settings-section-title">
+          <ShieldCheck size={22} />
+          <div>
+            <h2>消费版订阅账号</h2>
+            <p>支持 ChatGPT、Claude、Gemini 与 Grok 账号登录。</p>
+          </div>
+        </div>
+        <SubscriptionAccountManager settings={settings} updateSettings={updateSettings} accountsState={accountsState} reloadAccounts={reloadAccounts} />
+      </section>
+
+      <section className="settings-section section-block">
+        <div className="settings-section-title">
+          <SlidersHorizontal size={22} />
+          <div>
+            <h2>请求策略</h2>
+            <p>顺序执行，避免多个在途请求同时越过预算。</p>
+          </div>
+        </div>
+        <div className="form-grid">
+          <Field label="单轮最大输出" hint={isSubscriptionProvider(settings.provider) ? '订阅接口会尽可能使用该上限；ChatGPT Codex 仍属于提示级软限制。' : '越小越接近目标，但输入 token 和请求次数会更多。'}>
+            <input type="number" min="1" max="65536" value={settings.batchSize} onChange={(event) => updateSettings({ batchSize: event.target.value })} />
+          </Field>
+          {!isSubscriptionProvider(settings.provider) && ['openai', 'openai-completions'].includes(settings.apiFormat) ? (
+            <Field label="Token 参数">
+              <select value={settings.tokenParam} onChange={(event) => updateSettings({ tokenParam: event.target.value })}>
+                <option value="auto">自动</option>
+                <option value="max_tokens">max_tokens</option>
+                <option value="max_completion_tokens">max_completion_tokens</option>
+              </select>
+            </Field>
+          ) : null}
+          {!isSubscriptionProvider(settings.provider) ? (
+            <Field label="鉴权方式">
+              <select value={settings.authMode} onChange={(event) => updateSettings({ authMode: event.target.value })}>
+                <option value="bearer">Authorization: Bearer</option>
+                <option value="x-api-key">x-api-key</option>
+                <option value="x-goog-api-key">x-goog-api-key</option>
+                <option value="none">无鉴权</option>
+              </select>
+            </Field>
+          ) : null}
+          {!isSubscriptionProvider(settings.provider) ? (
+            <>
+              <Field label="响应方式">
+                <label className="toggle-line">
+                  <input
+                    type="checkbox"
+                    checked={settings.apiFormat === 'openai-completions' ? false : settings.stream}
+                    disabled={settings.apiFormat === 'openai-completions'}
+                    onChange={(event) => updateSettings({ stream: event.target.checked })}
+                  />
+                  <span>{settings.apiFormat === 'openai-completions' ? '完整响应（保留 usage）' : '启用流式响应'}</span>
+                </label>
+              </Field>
+              <Field label="输入价格 (USD / M)" hint="留空时使用 OpenRouter 目录或内置快照。">
+                <input
+                  type="number"
+                  min="0"
+                  step="0.000001"
+                  value={settings.inputPricePerMillion}
+                  onChange={(event) => updateSettings({ inputPricePerMillion: event.target.value })}
+                  placeholder="自动"
+                />
+              </Field>
+              <Field label="输出价格 (USD / M)" hint="自定义 API 的金额模式建议手动填写。">
+                <input
+                  type="number"
+                  min="0"
+                  step="0.000001"
+                  value={settings.outputPricePerMillion}
+                  onChange={(event) => updateSettings({ outputPricePerMillion: event.target.value })}
+                  placeholder="自动"
+                />
+              </Field>
+            </>
+          ) : null}
+          {/\/\/api\.deepseek\.com\//i.test(settings.endpoint) ? (
+            <Field label="深度思考">
+              <label className="toggle-line">
+                <input type="checkbox" checked={settings.deepThinking} onChange={(event) => updateSettings({ deepThinking: event.target.checked })} />
+                <span>启用 thinking</span>
+              </label>
+            </Field>
+          ) : null}
+          <Field label="系统提示词" className="span-2">
+            <textarea rows="3" value={settings.systemPrompt} onChange={(event) => updateSettings({ systemPrompt: event.target.value })} />
+          </Field>
+          {!isSubscriptionProvider(settings.provider) ? (
+            <Field label="附加 Headers (JSON)" hint='示例：{"X-Title":"Token Killer"}' className="span-2">
+              <textarea rows="3" value={settings.extraHeaders} spellCheck="false" onChange={(event) => updateSettings({ extraHeaders: event.target.value })} placeholder="{}" />
+            </Field>
+          ) : null}
+        </div>
+      </section>
+
+      <section className="settings-section section-block">
+        <div className="settings-section-title">
+          <Database size={22} />
+          <div>
+            <h2>数据与全网榜</h2>
+            <p>设置排行榜参与方式和服务地址。</p>
+          </div>
+        </div>
+        <div className="form-grid data-grid">
+          <Field label="排行榜编号" hint="自动生成，无需注册或填写昵称。">
+            <output className="participant-id" aria-label="排行榜编号">{participantLabel}</output>
+          </Field>
+          <Field label="排行榜服务地址" hint="同域部署可留空；分开部署时填写服务 URL。">
+            <input type="url" value={settings.leaderboardApiUrl} spellCheck="false" onChange={(event) => updateSettings({ leaderboardApiUrl: event.target.value })} placeholder="同域 /api" />
+          </Field>
+          <Field label="公开汇总" hint="公开 token、费用、轮数、模型和时长。">
+            <label className="toggle-line">
+              <input type="checkbox" checked={settings.publishToLeaderboard} onChange={(event) => updateSettings({ publishToLeaderboard: event.target.checked })} />
+              <span>将完整 usage 运行发布到全网榜</span>
+            </label>
+          </Field>
+          <div className="data-actions">
+            <button className="secondary-button" type="button" onClick={() => exportLocalData(settings, runs)}>
+              <DownloadSimple size={18} />
+              导出 JSON
+            </button>
+            <button className="danger-button" type="button" onClick={onClear}>
+              <Trash size={18} />
+              清空数据
+            </button>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  )
+}
+
+function Onboarding({ settings, updateSettings, models, availableModels, modelListState, refreshAvailableModels, accountsState, reloadAccounts, onClose }) {
+  const [step, setStep] = useState(0)
+  const steps = [
+    {
+      title: '欢迎使用 Token Killer',
+      body: (
+        <div className="onboard-points">
+          <div><ShieldCheck size={22} /><span><strong>选择接入方式</strong><small>支持 API Key 与消费版订阅账号。</small></span></div>
+          <div><Gauge size={22} /><span><strong>按回执统计</strong><small>每轮使用供应商 usage 更新进度。</small></span></div>
+          <div><Key size={22} /><span><strong>隐私编号</strong><small>系统自动生成编号，不需要注册或填写昵称。</small></span></div>
+        </div>
+      ),
+    },
+    {
+      title: '连接你的 API',
+      body: (
+        <>
+          <ProviderFields
+            settings={settings}
+            updateSettings={updateSettings}
+            models={models}
+            availableModels={availableModels}
+            modelListState={modelListState}
+            refreshAvailableModels={refreshAvailableModels}
+            accounts={accountsState.accounts}
+            compact
+          />
+          {isSubscriptionProvider(settings.provider) ? <SubscriptionAccountManager settings={settings} updateSettings={updateSettings} accountsState={accountsState} reloadAccounts={reloadAccounts} compact /> : null}
+        </>
+      ),
+    },
+    {
+      title: '设定第一把火',
+      body: (
+        <div className="onboard-target">
+          <Field label="目标 Token">
+            <input type="number" min="1" value={settings.targetTokens} onChange={(event) => updateSettings({ targetTokens: event.target.value, targetMode: 'tokens' })} />
+          </Field>
+          <div className="onboard-preset">
+            <Lightning size={22} weight="fill" />
+            <div><strong>推荐：熵增清单</strong><small>输出稳定，便于逐轮逼近目标。</small></div>
+          </div>
+        </div>
+      ),
+    },
+  ]
+
+  const finish = () => {
+    markOnboarded()
+    onClose()
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <div className="onboarding-modal" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
+        <div className="onboarding-progress">
+          {steps.map((_, index) => <i className={index <= step ? 'active' : ''} key={index} />)}
+        </div>
+        <span className="onboarding-count">{step + 1} / {steps.length}</span>
+        <h2 id="onboarding-title">{steps[step].title}</h2>
+        <p className="onboarding-intro">三步完成配置，之后可随时修改。</p>
+        <div className="onboarding-body">{steps[step].body}</div>
+        <div className="onboarding-actions">
+          <button className="text-button" type="button" onClick={finish}>跳过引导</button>
+          <div>
+            {step > 0 ? <button className="secondary-button" type="button" onClick={() => setStep(step - 1)}>上一步</button> : null}
+            <button className="start-button" type="button" onClick={() => step === steps.length - 1 ? finish() : setStep(step + 1)}>
+              {step === steps.length - 1 ? '进入控制台' : '继续'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export default function App() {
+  const [activePanel, setActivePanel] = useState('burn')
+  const [settings, setSettings] = useState(() => readSettings(DEFAULT_SETTINGS))
+  const [runs, setRuns] = useState(() => readRuns())
+  const [models, setModels] = useState([])
+  const [catalogState, setCatalogState] = useState('loading')
+  const [availableModels, setAvailableModels] = useState([])
+  const [modelListState, setModelListState] = useState({ status: 'idle', count: 0, endpoint: '', error: '' })
+  const [session, setSession] = useState(INITIAL_SESSION)
+  const [leaderboardVersion, setLeaderboardVersion] = useState(0)
+  const [accountsState, setAccountsState] = useState({ status: 'idle', accounts: [], error: '' })
+  const [showOnboarding, setShowOnboarding] = useState(() => !hasOnboarded())
+  const [participantLabel, setParticipantLabel] = useState(() => getParticipantLabel())
+  const abortRef = useRef(null)
+  const modelListAbortRef = useRef(null)
+  const apiKeyStateRef = useRef({ provider: '', ready: false, request: 0 })
+  const apiKeySaveTimerRef = useRef(null)
+
+  const updateSettings = useCallback((patch) => setSettings((current) => ({ ...current, ...patch })), [])
+  const reloadAccounts = useCallback(async () => {
+    setAccountsState((current) => ({ ...current, status: 'loading', error: '' }))
+    try {
+      const accounts = await listSubscriptionAccounts(settings.subscriptionApiUrl)
+      setAccountsState({ status: 'ready', accounts, error: '' })
+      setSettings((current) => {
+        const selectedExists = accounts.some((account) => account.id === current.selectedAccountId)
+        if (selectedExists || !accounts.length) return current
+        return { ...current, selectedAccountId: accounts[0].id }
+      })
+      return accounts
+    } catch (error) {
+      setAccountsState({ status: 'error', accounts: [], error: error.message })
+      return []
+    }
+  }, [settings.subscriptionApiUrl])
+  const price = useMemo(() => {
+    const automatic = resolvePrice(settings.model, models)
+    const hasInputOverride = settings.inputPricePerMillion !== ''
+    const hasOutputOverride = settings.outputPricePerMillion !== ''
+    if (!hasInputOverride && !hasOutputOverride) return automatic
+    return {
+      input: hasInputOverride ? Number(settings.inputPricePerMillion) / 1_000_000 : automatic.input,
+      output: hasOutputOverride ? Number(settings.outputPricePerMillion) / 1_000_000 : automatic.output,
+      source: '手动价格覆盖',
+    }
+  }, [settings.model, settings.inputPricePerMillion, settings.outputPricePerMillion, models])
+  const isDark = settings.theme === 'dark' || (settings.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+
+  const refreshCatalog = async () => {
+    setCatalogState('loading')
+    const controller = new AbortController()
+    try {
+      const catalog = await loadOpenRouterModels(controller.signal)
+      setModels(catalog)
+      setCatalogState('ready')
+    } catch {
+      setCatalogState('error')
+    }
+    return () => controller.abort()
+  }
+
+  const refreshAvailableModels = async () => {
+    modelListAbortRef.current?.abort()
+    const controller = new AbortController()
+    modelListAbortRef.current = controller
+    setModelListState({ status: 'loading', count: 0, endpoint: '', error: '' })
+    try {
+      const result = await loadProviderModels(settings, controller.signal)
+      if (modelListAbortRef.current !== controller) return
+      setAvailableModels(result.models)
+      setModelListState({ status: 'ready', count: result.models.length, endpoint: result.endpoint, error: '' })
+    } catch (error) {
+      if (error.name === 'AbortError' || modelListAbortRef.current !== controller) return
+      setAvailableModels([])
+      setModelListState({ status: 'error', count: 0, endpoint: '', error: error.message })
+    }
+  }
+
+  useEffect(() => {
+    refreshCatalog()
+  }, [])
+
+  useEffect(() => {
+    modelListAbortRef.current?.abort()
+    modelListAbortRef.current = null
+    setAvailableModels([])
+    setModelListState({ status: 'idle', count: 0, endpoint: '', error: '' })
+  }, [settings.endpoint, settings.apiFormat, settings.authMode])
+
+  useEffect(() => {
+    reloadAccounts()
+  }, [reloadAccounts])
+
+  useEffect(() => {
+    if (isSubscriptionProvider(settings.provider) && settings.targetMode !== 'tokens') {
+      updateSettings({ targetMode: 'tokens' })
+    }
+  }, [settings.provider, settings.targetMode, updateSettings])
+
+  useEffect(() => {
+    const provider = settings.provider
+    const request = apiKeyStateRef.current.request + 1
+    apiKeyStateRef.current = { provider, ready: false, request }
+    setSettings((current) => current.provider === provider && current.apiKey ? { ...current, apiKey: '' } : current)
+
+    if (isSubscriptionProvider(provider)) return
+
+    getEncryptedSecret(apiKeySecretId(provider))
+      .then((apiKey) => {
+        if (apiKeyStateRef.current.request !== request) return
+        apiKeyStateRef.current = { provider, ready: true, request }
+        setSettings((current) => current.provider === provider ? { ...current, apiKey } : current)
+      })
+      .catch(() => {
+        if (apiKeyStateRef.current.request !== request) return
+        apiKeyStateRef.current = { provider, ready: true, request }
+      })
+  }, [settings.provider])
+
+  useEffect(() => {
+    const keyState = apiKeyStateRef.current
+    if (
+      !keyState.ready ||
+      keyState.provider !== settings.provider ||
+      isSubscriptionProvider(settings.provider)
+    ) {
+      window.clearTimeout(apiKeySaveTimerRef.current)
+      apiKeySaveTimerRef.current = null
+      return undefined
+    }
+
+    const timer = window.setTimeout(() => {
+      apiKeySaveTimerRef.current = null
+      const operation = settings.apiKey
+        ? saveEncryptedSecret(apiKeySecretId(settings.provider), settings.apiKey)
+        : deleteEncryptedSecret(apiKeySecretId(settings.provider))
+      operation.catch(() => {})
+    }, 300)
+    apiKeySaveTimerRef.current = timer
+    return () => {
+      window.clearTimeout(timer)
+      if (apiKeySaveTimerRef.current === timer) apiKeySaveTimerRef.current = null
+    }
+  }, [settings.provider, settings.apiKey])
+
+  useEffect(() => {
+    writeSettings(settings)
+    const root = document.documentElement
+    if (settings.theme === 'system') root.removeAttribute('data-theme')
+    else root.setAttribute('data-theme', settings.theme)
+  }, [settings])
+
+  const saveRun = (data) => {
+    const nextRuns = [data, ...runs].slice(0, 500)
+    setRuns(nextRuns)
+    writeRuns(nextRuns)
+  }
+
+  const startRun = async () => {
+    if (session.status === 'running') return
+    const preset = PROMPT_PRESETS.find((item) => item.id === settings.promptId) || PROMPT_PRESETS[0]
+    const prompt = settings.promptId === 'custom' ? settings.customPrompt : preset.prompt
+    const target = settings.targetMode === 'tokens' ? Number(settings.targetTokens) : Number(settings.targetAmount)
+    const batchSize = Math.max(1, Number(settings.batchSize) || 1)
+    const startedAt = Date.now()
+    const controller = new AbortController()
+    abortRef.current = controller
+
+    let totals = { tokens: 0, input: 0, output: 0, cost: 0, rounds: 0, verifiedRounds: 0 }
+    let calibratedInput = 0
+    let finalStatus = 'completed'
+    let finalMessage = '目标已完成'
+    let latestLogs = []
+    let leaderboardSession = null
+
+    setSession({ ...INITIAL_SESSION, status: 'running', startedAt, message: '正在准备第 1 轮' })
+
+    try {
+      if (settings.publishToLeaderboard) {
+        try {
+          leaderboardSession = await createLeaderboardSession(settings.leaderboardApiUrl, settings)
+          latestLogs = [{ id: `board-${Date.now()}`, label: '全网榜', value: '运行票据已签发' }]
+        } catch (error) {
+          latestLogs = [{ id: `board-${Date.now()}`, label: '全网榜未连接', value: error.message }]
+        }
+      }
+
+      for (let iteration = 0; iteration < 10000; iteration += 1) {
+        const inputReserve = calibratedInput ? Math.ceil(calibratedInput * 1.05 + 8) : guardedPromptEstimate(settings.systemPrompt, prompt)
+        let maxOutput
+
+        if (settings.targetMode === 'tokens') {
+          const remaining = target - totals.tokens
+          maxOutput = Math.min(batchSize, Math.floor(remaining - inputReserve))
+          if (remaining <= 0) break
+          if (maxOutput < 1) {
+            finalStatus = 'guarded'
+            finalMessage = `已触发上限保护，剩余 ${formatTokens(remaining)} token 小于下一轮安全预留`
+            break
+          }
+        } else {
+          if (!price.output || (!price.input && !price.output)) throw new Error('金额模式需要有效的模型输入与输出价格')
+          const remaining = target - totals.cost
+          const inputCostReserve = inputReserve * price.input
+          maxOutput = Math.min(batchSize, Math.floor((remaining - inputCostReserve) / price.output))
+          if (remaining <= 0) break
+          if (maxOutput < 1) {
+            finalStatus = 'guarded'
+            finalMessage = `已触发金额保护，余额 ${formatMoney(remaining)} 不足以安全发起下一轮`
+            break
+          }
+        }
+
+        setSession((current) => ({ ...current, message: `第 ${iteration + 1} 轮请求中，输出上限 ${formatTokens(maxOutput)}` }))
+        let outputPreview = ''
+        let lastPaint = 0
+        const result = await callProvider(settings, prompt, maxOutput, controller.signal, (delta) => {
+          outputPreview = `${outputPreview}${delta}`.slice(-1200)
+          const now = Date.now()
+          if (now - lastPaint > 120) {
+            lastPaint = now
+            setSession((current) => ({ ...current, currentOutput: outputPreview }))
+          }
+        })
+
+        calibratedInput = result.usage.input || calibratedInput
+        const roundCost = result.usage.cost > 0
+          ? result.usage.cost
+          : result.usage.input * price.input + result.usage.output * price.output
+        totals = {
+          tokens: totals.tokens + result.usage.total,
+          input: totals.input + result.usage.input,
+          output: totals.output + result.usage.output,
+          cost: totals.cost + roundCost,
+          rounds: totals.rounds + 1,
+          verifiedRounds: totals.verifiedRounds + (result.usage.verified ? 1 : 0),
+        }
+        latestLogs = [
+          ...latestLogs,
+          {
+            id: `${iteration}-${Date.now()}`,
+            label: `第 ${iteration + 1} 轮${result.usage.verified ? '' : '（估算）'}`,
+            value: `+${formatTokens(result.usage.total)} / ${formatMoney(roundCost)}`,
+          },
+        ].slice(-20)
+
+        setSession((current) => ({
+          ...current,
+          ...totals,
+          logs: latestLogs,
+          currentOutput: result.text.slice(-1200),
+          message: `第 ${iteration + 1} 轮完成，已回收 usage`,
+        }))
+
+        if (settings.targetMode === 'tokens' && totals.tokens >= target) {
+          if (totals.tokens > target) {
+            finalStatus = 'exceeded'
+            finalMessage = `供应商实际分词超出软上限 ${formatTokens(totals.tokens - target)} token`
+          }
+          break
+        }
+        if (settings.targetMode === 'money' && totals.cost >= target) {
+          if (totals.cost > target) {
+            finalStatus = 'exceeded'
+            finalMessage = `实际估算超出目标 ${formatMoney(totals.cost - target)}`
+          }
+          break
+        }
+      }
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        finalStatus = 'stopped'
+        finalMessage = '已停止。在途请求可能已被供应商计费，但未返回最终 usage'
+      } else {
+        finalStatus = 'error'
+        finalMessage = error.message
+      }
+    } finally {
+      abortRef.current = null
+      const endedAt = Date.now()
+      setSession((current) => ({ ...current, ...totals, status: finalStatus, endedAt, message: finalMessage, logs: latestLogs }))
+      if (totals.rounds > 0) {
+        const run = {
+          id: crypto.randomUUID(),
+          date: todayKey(new Date(startedAt)),
+          startedAt,
+          duration: endedAt - startedAt,
+          provider: settings.provider,
+          model: settings.model,
+          promptId: settings.promptId,
+          tokens: totals.tokens,
+          input: totals.input,
+          output: totals.output,
+          cost: totals.cost,
+          rounds: totals.rounds,
+          verified: totals.rounds === totals.verifiedRounds,
+          status: finalStatus,
+        }
+        saveRun(run)
+        if (leaderboardSession && run.verified) {
+          submitLeaderboardRun(settings.leaderboardApiUrl, leaderboardSession, run)
+            .then((result) => {
+              if (!result) return
+              setLeaderboardVersion((value) => value + 1)
+              setSession((current) => ({
+                ...current,
+                logs: [...current.logs, { id: `board-${Date.now()}`, label: '全网榜', value: '已发布' }].slice(-20),
+              }))
+            })
+            .catch((error) => {
+              setSession((current) => ({
+                ...current,
+                logs: [...current.logs, { id: `board-${Date.now()}`, label: '全网榜发布失败', value: error.message }].slice(-20),
+              }))
+            })
+        }
+      }
+    }
+  }
+
+  const stopRun = () => {
+    setSession((current) => ({ ...current, status: 'stopping', message: '正在中止当前请求' }))
+    abortRef.current?.abort()
+  }
+
+  const handleClear = async () => {
+    if (!window.confirm('确定清空设置、运行记录和已保存凭据吗？')) return
+    window.clearTimeout(apiKeySaveTimerRef.current)
+    apiKeySaveTimerRef.current = null
+    const resetRequest = apiKeyStateRef.current.request + 1
+    apiKeyStateRef.current = { provider: '', ready: false, request: resetRequest }
+    clearLocalData()
+    try {
+      await clearLocalVault()
+    } catch (error) {
+      window.alert(error.message)
+      return
+    }
+    setRuns([])
+    apiKeyStateRef.current = { provider: DEFAULT_SETTINGS.provider, ready: true, request: resetRequest }
+    setSettings(DEFAULT_SETTINGS)
+    setParticipantLabel(getParticipantLabel())
+    setSession(INITIAL_SESSION)
+    setAccountsState({ status: 'idle', accounts: [], error: '' })
+    setShowOnboarding(true)
+  }
+
+  return (
+    <div className="app-shell">
+      <aside className="sidebar">
+        <div className="brand">
+          <span className="brand-mark"><Fire size={20} weight="fill" /></span>
+          <span><strong>Token Killer</strong><small>AI Token 消耗实验室</small></span>
+        </div>
+        <nav>
+          <NavButton active={activePanel === 'burn'} icon={Fire} label="消耗" onClick={() => setActivePanel('burn')} />
+          <NavButton active={activePanel === 'stats'} icon={ChartBar} label="统计" onClick={() => setActivePanel('stats')} />
+          <NavButton active={activePanel === 'settings'} icon={SlidersHorizontal} label="配置" onClick={() => setActivePanel('settings')} />
+        </nav>
+        <div className="sidebar-foot">
+          <div className="local-badge"><ShieldCheck size={18} /><span><strong>{participantLabel}</strong><small>排行榜编号</small></span></div>
+          <button
+            className="theme-toggle"
+            type="button"
+            aria-label={isDark ? '切换到浅色模式' : '切换到深色模式'}
+            onClick={() => updateSettings({ theme: isDark ? 'light' : 'dark' })}
+          >
+            {isDark ? <Sun size={19} /> : <Moon size={19} />}
+          </button>
+          <button className="sidebar-help" type="button" aria-label="重新打开使用引导" onClick={() => setShowOnboarding(true)}>
+            <Info size={19} />
+          </button>
+        </div>
+      </aside>
+
+      <main>
+        {activePanel === 'burn' ? (
+          <BurnPanel settings={settings} updateSettings={updateSettings} catalogState={catalogState} session={session} onStart={startRun} onStop={stopRun} price={price} accounts={accountsState.accounts} />
+        ) : null}
+        {activePanel === 'stats' ? <StatsPanel runs={runs} settings={settings} leaderboardVersion={leaderboardVersion} participantLabel={participantLabel} /> : null}
+        {activePanel === 'settings' ? (
+          <SettingsPanel
+            settings={settings}
+            updateSettings={updateSettings}
+            models={models}
+            availableModels={availableModels}
+            modelListState={modelListState}
+            refreshAvailableModels={refreshAvailableModels}
+            catalogState={catalogState}
+            refreshCatalog={refreshCatalog}
+            runs={runs}
+            onClear={handleClear}
+            accountsState={accountsState}
+            reloadAccounts={reloadAccounts}
+            participantLabel={participantLabel}
+          />
+        ) : null}
+      </main>
+
+      <nav className="mobile-nav">
+        <NavButton active={activePanel === 'burn'} icon={Fire} label="消耗" onClick={() => setActivePanel('burn')} />
+        <NavButton active={activePanel === 'stats'} icon={ChartBar} label="统计" onClick={() => setActivePanel('stats')} />
+        <NavButton active={activePanel === 'settings'} icon={SlidersHorizontal} label="配置" onClick={() => setActivePanel('settings')} />
+      </nav>
+
+      {showOnboarding ? (
+        <Onboarding
+          settings={settings}
+          updateSettings={updateSettings}
+          models={models}
+          availableModels={availableModels}
+          modelListState={modelListState}
+          refreshAvailableModels={refreshAvailableModels}
+          accountsState={accountsState}
+          reloadAccounts={reloadAccounts}
+          onClose={() => setShowOnboarding(false)}
+        />
+      ) : null}
+    </div>
+  )
+}

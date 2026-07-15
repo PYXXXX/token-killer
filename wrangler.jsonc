@@ -1,0 +1,23 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "token-killer",
+  "compatibility_date": "2026-07-13",
+  "main": "./worker/index.js",
+  "assets": {
+    "directory": "./dist/",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*"],
+    "not_found_handling": "single-page-application"
+  },
+  "d1_databases": [
+    {
+      "binding": "TOKEN_KILLER_DB",
+      "database_name": "token-killer",
+      "database_id": "REPLACE_WITH_YOUR_D1_DATABASE_ID",
+      "migrations_dir": "./migrations"
+    }
+  ],
+  "vars": {
+    "ALLOWED_ORIGINS": ""
+  }
+}

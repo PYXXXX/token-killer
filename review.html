@@ -1,0 +1,1588 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="light dark" />
+  <title>Token Killer - 静态审阅稿</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f3f0e9;
+      --surface: #f9f7f2;
+      --surface-2: #ebe6dc;
+      --surface-3: #dfd9ce;
+      --ink: #24221e;
+      --ink-2: #625e56;
+      --ink-3: #837d73;
+      --line: #d8d1c5;
+      --accent: #d85b3c;
+      --accent-soft: #f0d8cf;
+      --accent-ink: #8a2f1c;
+      --console: #25231f;
+      --console-line: #3e3b34;
+      --console-ink: #f1eee7;
+      --success: #55765d;
+      --radius: 12px;
+      --shadow: 0 20px 55px rgb(69 55 39 / 0.08);
+      --mono: "SFMono-Regular", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
+      --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+
+    [data-theme="dark"] {
+      color-scheme: dark;
+      --bg: #1c1b18;
+      --surface: #24231f;
+      --surface-2: #2d2b26;
+      --surface-3: #39362f;
+      --ink: #efebe2;
+      --ink-2: #bcb6aa;
+      --ink-3: #8f897f;
+      --line: #413e37;
+      --accent: #e36e50;
+      --accent-soft: #4d2f27;
+      --accent-ink: #ffb29d;
+      --console: #151512;
+      --console-line: #34322d;
+      --console-ink: #f1eee7;
+      --success: #8eb298;
+      --shadow: 0 24px 60px rgb(8 8 7 / 0.28);
+    }
+
+    * { box-sizing: border-box; }
+
+    html { min-width: 320px; min-height: 100%; background: var(--bg); }
+
+    body {
+      margin: 0;
+      min-width: 320px;
+      min-height: 100dvh;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: var(--sans);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    button, input, select, textarea { font: inherit; }
+
+    button, select, input, textarea { color: inherit; }
+
+    button { cursor: pointer; }
+
+    button:focus-visible,
+    input:focus-visible,
+    select:focus-visible,
+    textarea:focus-visible {
+      outline: 3px solid color-mix(in srgb, var(--accent) 35%, transparent);
+      outline-offset: 2px;
+    }
+
+    .app {
+      min-height: 100dvh;
+      display: grid;
+      grid-template-columns: 226px minmax(0, 1fr);
+    }
+
+    .sidebar {
+      position: sticky;
+      top: 0;
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      padding: 26px 18px 18px;
+      border-right: 1px solid var(--line);
+      background: var(--surface);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      padding: 0 7px 26px;
+    }
+
+    .brand-mark {
+      width: 38px;
+      height: 38px;
+      display: grid;
+      place-items: center;
+      border-radius: var(--radius);
+      background: var(--accent);
+      color: #faf6ef;
+      font: 800 12px/1 var(--mono);
+      letter-spacing: -0.05em;
+    }
+
+    .brand strong { display: block; font-size: 15px; letter-spacing: -0.02em; }
+    .brand small { display: block; margin-top: 3px; color: var(--ink-3); font-size: 10px; }
+
+    .nav { display: grid; gap: 6px; }
+
+    .nav button,
+    .mobile-nav button {
+      min-height: 43px;
+      border: 0;
+      border-radius: var(--radius);
+      background: transparent;
+      color: var(--ink-2);
+      font-weight: 650;
+      text-align: left;
+    }
+
+    .nav button { padding: 0 14px; }
+
+    .nav button:hover,
+    .mobile-nav button:hover { background: var(--surface-2); color: var(--ink); }
+
+    .nav button[aria-selected="true"],
+    .mobile-nav button[aria-selected="true"] {
+      background: var(--accent-soft);
+      color: var(--accent-ink);
+    }
+
+    .nav button:active,
+    .mobile-nav button:active,
+    .button:active { transform: translateY(1px); }
+
+    .sidebar-bottom {
+      margin-top: auto;
+      display: grid;
+      gap: 10px;
+    }
+
+    .identity {
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--bg);
+    }
+
+    .identity strong { display: block; font: 700 12px/1.2 var(--mono); }
+    .identity small { display: block; margin-top: 5px; color: var(--ink-3); font-size: 10px; }
+
+    .theme-button {
+      min-height: 38px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: transparent;
+      color: var(--ink-2);
+      font-size: 12px;
+    }
+
+    main {
+      width: min(100%, 1440px);
+      margin: 0 auto;
+      padding: 42px 46px 60px;
+    }
+
+    .review-notice {
+      margin-bottom: 24px;
+      padding: 11px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--line));
+      border-radius: var(--radius);
+      color: var(--accent-ink);
+      background: var(--accent-soft);
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    .mobile-theme {
+      display: none;
+      min-height: 30px;
+      padding: 0 10px;
+      border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
+      border-radius: 9px;
+      background: transparent;
+      color: var(--accent-ink);
+      font-size: 10px;
+      font-weight: 750;
+      white-space: nowrap;
+    }
+
+    .view { display: none; }
+    .view.active { display: block; }
+
+    .page-header {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: start;
+      gap: 28px;
+      margin-bottom: 30px;
+    }
+
+    .kicker {
+      display: block;
+      margin-bottom: 10px;
+      color: var(--accent);
+      font: 700 11px/1 var(--mono);
+      letter-spacing: 0.08em;
+    }
+
+    h1, h2, h3, p { margin-top: 0; }
+
+    h1 {
+      max-width: 760px;
+      margin-bottom: 12px;
+      font-size: clamp(34px, 4.2vw, 60px);
+      line-height: 0.98;
+      letter-spacing: -0.065em;
+    }
+
+    .page-header p {
+      max-width: 640px;
+      margin-bottom: 0;
+      color: var(--ink-2);
+      font-size: 14px;
+      line-height: 1.7;
+    }
+
+    .provider-status {
+      min-width: 215px;
+      padding: 15px 17px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+
+    .provider-status strong { display: block; font-size: 13px; }
+    .provider-status small { display: block; margin-top: 6px; color: var(--ink-3); font-size: 11px; }
+
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+    }
+
+    .burn-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 370px;
+      gap: 18px;
+      align-items: start;
+    }
+
+    .main-stack { display: grid; gap: 18px; }
+
+    .section { padding: 24px; }
+
+    .section-heading {
+      display: flex;
+      justify-content: space-between;
+      gap: 20px;
+      align-items: start;
+      margin-bottom: 22px;
+    }
+
+    .section-heading h2,
+    .settings-title h2 { margin-bottom: 6px; font-size: 17px; letter-spacing: -0.025em; }
+
+    .section-heading p,
+    .settings-title p { margin-bottom: 0; color: var(--ink-3); font-size: 12px; line-height: 1.55; }
+
+    .segmented {
+      display: inline-grid;
+      grid-auto-flow: column;
+      padding: 3px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface-2);
+    }
+
+    .segmented button {
+      min-height: 34px;
+      padding: 0 15px;
+      border: 0;
+      border-radius: 9px;
+      background: transparent;
+      color: var(--ink-3);
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .segmented button.active { background: var(--surface); color: var(--ink); box-shadow: 0 2px 8px rgb(38 31 23 / 0.08); }
+
+    .target-grid {
+      display: grid;
+      grid-template-columns: 1.25fr 1fr;
+      gap: 12px;
+    }
+
+    .target-input,
+    .target-meta {
+      min-height: 124px;
+      border-radius: var(--radius);
+      background: var(--surface-2);
+    }
+
+    .target-input { padding: 19px; }
+    .target-input label { display: block; margin-bottom: 9px; color: var(--ink-3); font: 700 10px/1 var(--mono); letter-spacing: 0.1em; }
+
+    .target-input input {
+      width: 100%;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: var(--ink);
+      font: 800 43px/1 var(--mono);
+      letter-spacing: -0.07em;
+    }
+
+    .target-meta { display: grid; grid-template-columns: 1fr 1fr; overflow: hidden; }
+
+    .target-meta div { display: flex; flex-direction: column; justify-content: center; padding: 17px; }
+    .target-meta div + div { border-left: 1px solid var(--line); }
+    .target-meta span { color: var(--ink-3); font-size: 10px; }
+    .target-meta strong { margin-top: 10px; font: 700 13px/1.4 var(--mono); }
+
+    .helper {
+      margin: 14px 0 0;
+      color: var(--ink-3);
+      font-size: 11px;
+      line-height: 1.6;
+    }
+
+    .prompt-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+    .prompt-option {
+      position: relative;
+      min-height: 98px;
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: transparent;
+      color: var(--ink);
+      text-align: left;
+    }
+
+    .prompt-option:hover { border-color: var(--accent); }
+    .prompt-option.active { border-color: var(--accent); background: var(--accent-soft); }
+    .prompt-option strong { display: block; font-size: 13px; }
+    .prompt-option small { display: block; margin-top: 7px; color: var(--ink-2); font-size: 11px; line-height: 1.5; }
+    .prompt-option em { position: absolute; top: 16px; right: 16px; color: var(--accent-ink); font-size: 9px; font-style: normal; font-weight: 750; }
+
+    .prompt-preview {
+      margin-top: 12px;
+      padding: 15px 17px;
+      border-radius: var(--radius);
+      background: var(--bg);
+    }
+
+    .prompt-preview span { color: var(--ink-3); font-size: 10px; }
+    .prompt-preview p { margin: 8px 0 0; color: var(--ink-2); font-size: 11px; line-height: 1.7; }
+
+    .console {
+      position: sticky;
+      top: 24px;
+      padding: 22px;
+      border-radius: var(--radius);
+      background: var(--console);
+      color: var(--console-ink);
+      box-shadow: 0 30px 70px rgb(31 27 22 / 0.2);
+    }
+
+    .console-top { display: flex; justify-content: space-between; color: #aaa398; font: 600 10px/1 var(--mono); }
+
+    .progress-number {
+      --ring-progress: 0deg;
+      position: relative;
+      width: 182px;
+      height: 182px;
+      margin: 34px auto;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      background: conic-gradient(var(--accent) var(--ring-progress), var(--console-line) 0);
+      text-align: center;
+      transition: background 240ms ease;
+    }
+
+    .progress-number::before {
+      content: "";
+      position: absolute;
+      inset: 12px;
+      border: 1px solid var(--console-line);
+      border-radius: inherit;
+      background: var(--console);
+    }
+
+    .progress-number > div { position: relative; z-index: 1; }
+
+    .progress-number strong { display: block; font: 800 40px/1 var(--mono); letter-spacing: -0.06em; }
+    .progress-number small { display: block; margin-top: 8px; color: #aaa398; font: 600 10px/1 var(--mono); }
+
+    .console-progress { height: 4px; overflow: hidden; border-radius: 4px; background: var(--console-line); }
+    .console-progress i { display: block; width: 0; height: 100%; background: var(--accent); transition: width 240ms ease; }
+
+    .console-stats { display: grid; grid-template-columns: 1fr 1fr; margin-top: 22px; border: 1px solid var(--console-line); border-radius: var(--radius); overflow: hidden; }
+    .console-stats div { padding: 14px; }
+    .console-stats div:nth-child(2n) { border-left: 1px solid var(--console-line); }
+    .console-stats div:nth-child(n + 3) { border-top: 1px solid var(--console-line); }
+    .console-stats span { display: block; color: #aaa398; font-size: 10px; }
+    .console-stats strong { display: block; margin-top: 7px; font: 700 13px/1 var(--mono); }
+
+    .button {
+      min-height: 42px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 0 17px;
+      border: 1px solid transparent;
+      border-radius: var(--radius);
+      font-size: 12px;
+      font-weight: 750;
+      white-space: nowrap;
+    }
+
+    .button.primary { background: var(--accent); color: #faf6ef; }
+    .button.secondary { border-color: var(--line); background: var(--surface); color: var(--ink); }
+    .button.ghost { border-color: var(--console-line); background: transparent; color: var(--console-ink); }
+    .console .button { width: 100%; margin-top: 18px; }
+
+    .guard {
+      margin-top: 12px;
+      padding: 15px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+    }
+
+    .guard strong { display: block; font-size: 12px; }
+    .guard p { margin: 7px 0 0; color: var(--ink-3); font-size: 10px; line-height: 1.55; }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+
+    .metric { padding: 18px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+    .metric span { color: var(--ink-3); font-size: 10px; }
+    .metric strong { display: block; margin-top: 13px; font: 780 26px/1 var(--mono); letter-spacing: -0.05em; }
+    .metric small { display: block; margin-top: 8px; color: var(--ink-3); font-size: 10px; }
+
+    .rank-panel {
+      display: grid;
+      grid-template-columns: minmax(300px, 0.85fr) minmax(0, 1.15fr);
+      margin-bottom: 18px;
+      overflow: hidden;
+    }
+
+    .rank-identity { display: grid; grid-template-columns: 136px minmax(0, 1fr); gap: 18px; align-items: center; padding: 24px; border-right: 1px solid var(--line); }
+    .rank-crest-controls { display: grid; grid-template-columns: 20px 88px 20px; gap: 4px; align-items: center; }
+    .rank-crest-controls > button { width: 20px; height: 34px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--ink-2); font: 800 17px/1 var(--mono); }
+    .rank-crest-controls > button:hover:not(:disabled) { background: var(--accent-soft); color: var(--accent); }
+    .rank-crest-controls > button:disabled { opacity: 0.25; }
+    .rank-crest { width: 88px; height: 88px; display: grid; place-items: center; }
+    .rank-crest img { width: 86px; max-width: none; height: 86px; object-fit: contain; }
+    .rank-copy > span, .rank-region-head span, .rank-scope span { color: var(--ink-3); font-size: 9px; font-weight: 700; }
+    .rank-copy h2 { margin: 5px 0 7px; font-size: 25px; letter-spacing: -0.035em; }
+    .rank-stars { color: var(--accent); font: 700 16px/1 var(--mono); letter-spacing: 3px; }
+    .rank-stars.infinite { display: flex; align-items: center; gap: 6px; letter-spacing: 0; }
+    .rank-stars.infinite .rank-star-icon { font-size: 16px; }
+    .rank-stars.infinite strong { font: 750 12px/1 var(--mono); }
+    .rank-requirement { min-height: 16px; display: flex; align-items: baseline; gap: 8px; }
+    .rank-requirement span { color: var(--ink-3); font-size: 9px; }
+    .rank-requirement b { font: 700 10px/1 var(--mono); }
+    .rank-progress { height: 3px; margin-top: 13px; overflow: hidden; border-radius: 3px; background: var(--surface-2); }
+    .rank-progress i { display: block; width: 9%; height: 100%; border-radius: inherit; background: var(--accent); }
+    .rank-copy small { display: block; margin-top: 8px; color: var(--ink-2); font-size: 9px; }
+    .rank-regions { padding: 24px; }
+    .rank-region-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+    .rank-region-head strong { overflow: hidden; color: var(--ink-2); font: 650 9px/1.4 var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+    .rank-scope { display: grid; grid-template-columns: 1fr 1fr; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius); }
+    .rank-scope div { padding: 13px; }
+    .rank-scope div:nth-child(2n) { border-left: 1px solid var(--line); }
+    .rank-scope div:nth-child(n + 3) { border-top: 1px solid var(--line); }
+    .rank-scope strong { display: block; margin-top: 5px; font: 750 13px/1 var(--mono); }
+    .rank-ladder { grid-column: 1 / -1; min-width: 0; padding: 17px 18px 19px; border-top: 1px solid var(--line); }
+    .rank-ladder-head { display: flex; align-items: end; justify-content: space-between; gap: 16px; margin-bottom: 11px; }
+    .rank-ladder-head > div { min-width: 0; display: grid; gap: 3px; }
+    .rank-ladder-head span { color: var(--ink-3); font-size: 9px; font-weight: 700; }
+    .rank-ladder-head strong { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+    .rank-ladder-head > button { flex: 0 0 auto; padding: 6px 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink-2); font-size: 9px; font-weight: 700; }
+    .rank-ladder-track { display: grid; grid-template-columns: repeat(8, minmax(82px, 1fr)); gap: 6px; overflow-x: auto; padding: 1px 1px 6px; scrollbar-width: thin; }
+    .rank-ladder-track > button { min-width: 82px; min-height: 106px; display: grid; justify-items: center; align-content: start; gap: 2px; padding: 7px 6px; border: 1px solid transparent; border-radius: 9px; background: var(--surface-2); color: var(--ink-2); }
+    .rank-ladder-track > button:hover, .rank-ladder-track > button.active { border-color: color-mix(in srgb, var(--accent) 48%, var(--line)); background: var(--accent-soft); color: var(--ink); }
+    .rank-ladder-track > button.current { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 42%, transparent); }
+    .rank-ladder-track img { width: 58px; height: 58px; object-fit: contain; }
+    .rank-ladder-track span { font-size: 10px; font-weight: 750; }
+    .rank-ladder-track small { color: var(--ink-3); font: 650 7px/1 var(--mono); white-space: nowrap; }
+
+    .stats-top { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.75fr); gap: 18px; }
+
+    .rankings-window {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      align-self: flex-start;
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface-2);
+      color: var(--ink-2);
+      font-size: 9px;
+      font-weight: 750;
+    }
+
+    .rankings-window i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+
+    .usage-chart {
+      height: 252px;
+      display: grid;
+      grid-template-columns: 38px minmax(0, 1fr);
+      gap: 9px;
+      margin-top: 20px;
+    }
+
+    .usage-scale {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 25px 0 25px;
+      color: var(--ink-3);
+      font: 600 8px/1 var(--mono);
+      text-align: right;
+    }
+
+    .usage-plot { position: relative; min-width: 0; }
+    .usage-grid { position: absolute; inset: 27px 0 25px; display: flex; flex-direction: column; justify-content: space-between; }
+    .usage-grid i { display: block; border-top: 1px solid var(--line); }
+    .usage-bars { position: relative; z-index: 1; height: 100%; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: clamp(6px, 1.3vw, 14px); }
+    .usage-day { min-width: 0; display: grid; grid-template-rows: 21px 1fr 24px; gap: 5px; text-align: center; }
+    .usage-value { overflow: hidden; color: var(--ink-2); font: 600 8px/1 var(--mono); text-overflow: ellipsis; }
+    .usage-stack { min-height: 0; display: flex; flex-direction: column-reverse; justify-content: flex-start; gap: 2px; padding-inline: clamp(1px, 0.7vw, 7px); overflow: hidden; }
+    .usage-stack i { display: block; flex: 0 0 auto; width: 100%; min-height: 2px; border-radius: 3px; }
+    .usage-day > small { color: var(--ink-3); font-size: 9px; }
+
+    .tone-0 { background: var(--accent); }
+    .tone-1 { background: color-mix(in srgb, var(--accent) 72%, var(--ink-2)); }
+    .tone-2 { background: color-mix(in srgb, var(--accent) 48%, var(--surface-3)); }
+    .tone-3 { background: color-mix(in srgb, var(--accent) 28%, var(--ink-3)); }
+
+    .model-list {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      margin-top: 20px;
+      padding-top: 14px;
+      border-top: 1px solid var(--line);
+    }
+
+    .model-row {
+      min-width: 0;
+      display: grid;
+      grid-template-columns: 22px 8px minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+      padding: 10px 12px 10px 0;
+    }
+
+    .model-row:nth-child(2n) { padding-right: 0; padding-left: 12px; border-left: 1px solid var(--line); }
+    .model-row > span { color: var(--ink-3); font: 650 9px/1 var(--mono); }
+    .model-row > i { width: 8px; height: 8px; border-radius: 2px; }
+    .model-row div { min-width: 0; }
+    .model-row strong { display: block; overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+    .model-row small { display: block; margin-top: 4px; color: var(--ink-3); font-size: 8px; }
+    .model-row b { font: 700 10px/1 var(--mono); }
+
+    .share-card {
+      min-height: 354px;
+      display: flex;
+      flex-direction: column;
+      padding: 24px;
+      border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line));
+      border-radius: var(--radius);
+      background: var(--surface-2);
+    }
+
+    .share-card b { color: var(--accent); font: 750 11px/1 var(--mono); letter-spacing: 0.08em; }
+    .share-card strong { margin-top: auto; font: 820 58px/1 var(--mono); letter-spacing: -0.07em; }
+    .share-card p { margin: 9px 0 24px; color: var(--ink-2); font-size: 12px; }
+    .share-foot { display: flex; justify-content: space-between; gap: 12px; color: var(--ink-2); font: 650 10px/1.4 var(--mono); }
+    .share-rank { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 13px; color: var(--accent); font: 750 10px/1 var(--mono); }
+    .share-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 9px; }
+
+    .stats-bottom { display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 18px; margin-top: 18px; }
+
+    .history-list,
+    .ranking-list { display: grid; }
+
+    .history-row,
+    .ranking-row {
+      display: grid;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .history-row { grid-template-columns: minmax(0, 1fr) auto auto; }
+    .ranking-row { grid-template-columns: 30px minmax(118px, 0.75fr) minmax(230px, 1.25fr); }
+    .history-row:last-child,
+    .ranking-row:last-child { border-bottom: 0; }
+    .history-row strong,
+    .ranking-row strong { display: block; font-size: 11px; }
+    .history-row small,
+    .ranking-row small { display: block; margin-top: 5px; color: var(--ink-3); font-size: 9px; }
+    .history-row > b { font: 700 12px/1 var(--mono); }
+    .ranking-row > span { color: var(--ink-3); font: 650 10px/1 var(--mono); }
+    .ranking-row.current { margin-inline: -9px; padding-inline: 9px; border-radius: var(--radius); background: var(--accent-soft); }
+    .ranking-stats { display: grid; grid-template-columns: repeat(3, minmax(56px, 1fr)); gap: 8px; }
+    .ranking-stats > span { min-width: 0; display: grid; gap: 3px; text-align: right; }
+    .ranking-stats small { margin: 0; font-size: 8px; }
+    .ranking-stats b { overflow: hidden; font: 700 10px/1 var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+
+    .board-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; margin: 15px 0 8px; padding: 3px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-2); }
+    .board-tabs button { min-width: 0; min-height: 32px; overflow: hidden; border: 0; border-radius: 8px; background: transparent; color: var(--ink-2); font-size: 9px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+    .board-tabs button.active { background: var(--surface); color: var(--ink); box-shadow: 0 1px 4px rgb(38 32 25 / 0.08); }
+
+    .settings-stack { display: grid; gap: 18px; }
+
+    .settings-section { padding: 24px; }
+    .settings-title { margin-bottom: 22px; }
+
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 12px; }
+    .field { display: grid; align-content: start; gap: 8px; }
+    .field.full { grid-column: 1 / -1; }
+    .field > label { color: var(--ink-2); font-size: 11px; font-weight: 700; }
+    .field > small { color: var(--ink-3); font-size: 9px; line-height: 1.5; }
+    .field > small.error { color: var(--accent-ink); }
+
+    input, select, textarea {
+      width: 100%;
+      min-height: 42px;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--bg);
+      color: var(--ink);
+      font-size: 11px;
+    }
+
+    input::placeholder,
+    textarea::placeholder { color: var(--ink-3); opacity: 1; }
+
+    textarea { min-height: 82px; resize: vertical; line-height: 1.55; }
+
+    .secret-wrap { position: relative; }
+    .secret-wrap input { padding-right: 68px; }
+    .secret-wrap button { position: absolute; top: 5px; right: 5px; min-height: 32px; padding: 0 10px; border: 0; border-radius: 8px; background: var(--surface-2); color: var(--ink-2); font-size: 10px; }
+
+    .model-picker { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; }
+    .model-picker button { min-width: 72px; min-height: 42px; padding: 0 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); color: var(--ink-2); font-size: 10px; font-weight: 700; }
+    .model-picker button:hover { border-color: var(--accent); color: var(--accent-ink); }
+    .model-picker button:disabled { cursor: wait; opacity: 0.65; }
+
+    .subscription-actions { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+    .subscription-actions button { min-height: 43px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); color: var(--ink); font-size: 11px; font-weight: 700; }
+    .subscription-actions button:hover { border-color: var(--accent); color: var(--accent-ink); }
+
+    .toggle {
+      min-height: 42px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 11px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--bg);
+      font-size: 11px;
+    }
+
+    .toggle input { width: 16px; min-height: 16px; accent-color: var(--accent); }
+
+    .participant-id {
+      width: 100%;
+      min-height: 42px;
+      display: flex;
+      align-items: center;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--bg);
+      color: var(--ink);
+      font: 700 11px/1 var(--mono);
+      user-select: all;
+    }
+
+    .leaderboard-source { display: inline-flex; align-items: center; gap: 6px; line-height: 1.45; }
+    .leaderboard-source strong {
+      display: block;
+      max-width: min(40vw, 330px);
+      overflow: hidden;
+      color: var(--ink-2);
+      font-family: var(--mono);
+      font-size: inherit;
+      font-weight: 650;
+      line-height: inherit;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .inline-status { min-height: 18px; margin-top: 8px; color: var(--success); font-size: 10px; font-weight: 700; }
+
+    .mobile-nav { display: none; }
+
+    @media (max-width: 1100px) {
+      main { padding-inline: 28px; }
+      .burn-layout { grid-template-columns: minmax(0, 1fr) 330px; }
+      .metrics { grid-template-columns: 1fr 1fr; }
+      .stats-top, .stats-bottom { grid-template-columns: 1fr; }
+      .rank-panel { grid-template-columns: 1fr; }
+      .rank-identity { border-right: 0; border-bottom: 1px solid var(--line); }
+      .share-card { min-height: 290px; }
+    }
+
+    @media (max-width: 820px) {
+      .app { display: block; }
+      .sidebar { display: none; }
+      main { padding: 26px 18px 94px; }
+      .page-header { grid-template-columns: 1fr; }
+      .provider-status { min-width: 0; box-shadow: none; }
+      .burn-layout { grid-template-columns: 1fr; }
+      .console { position: static; }
+      .mobile-nav {
+        position: fixed;
+        inset: auto 10px 10px;
+        z-index: 5;
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 4px;
+        padding: 5px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: color-mix(in srgb, var(--surface) 94%, transparent);
+        box-shadow: var(--shadow);
+      }
+      .mobile-nav button { text-align: center; }
+      .mobile-theme { display: inline-flex; align-items: center; justify-content: center; }
+    }
+
+    @media (max-width: 620px) {
+      h1 { font-size: 38px; }
+      .section, .settings-section { padding: 18px; }
+      .section-heading { display: grid; }
+      .target-grid, .form-grid, .prompt-grid, .metrics { grid-template-columns: 1fr; }
+      .field.full { grid-column: auto; }
+      .subscription-actions { grid-template-columns: 1fr 1fr; }
+      .history-row { grid-template-columns: 1fr auto; }
+      .history-row > div:last-child { display: none; }
+      .share-foot { display: grid; }
+      .rank-identity, .rank-regions { padding: 18px; }
+      .rank-identity { grid-template-columns: 118px minmax(0, 1fr); gap: 10px; }
+      .rank-crest-controls { grid-template-columns: 19px 72px 19px; gap: 4px; }
+      .rank-crest { width: 72px; height: 72px; }
+      .rank-crest img { width: 72px; height: 72px; }
+      .rank-copy h2 { font-size: 22px; }
+      .rank-ladder { padding: 14px; }
+      .rank-ladder-head { align-items: flex-start; flex-direction: column; gap: 7px; }
+      .rank-ladder-head strong { white-space: normal; }
+      .rank-region-head { align-items: flex-start; flex-direction: column; gap: 5px; }
+      .ranking-row { grid-template-columns: 26px minmax(0, 1fr); }
+      .ranking-stats { grid-column: 2; }
+      .ranking-stats > span { text-align: left; }
+      .usage-chart { grid-template-columns: 28px minmax(0, 1fr); gap: 6px; }
+      .usage-bars { gap: 4px; }
+      .usage-stack { padding-inline: 1px; }
+      .model-list { grid-template-columns: 1fr; }
+      .model-row,
+      .model-row:nth-child(2n) { padding-inline: 0; border-left: 0; border-bottom: 1px solid var(--line); }
+      .model-row:last-child { border-bottom: 0; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-mark">TK</span>
+        <span><strong>Token Killer</strong><small>AI Token 消耗实验室</small></span>
+      </div>
+      <nav class="nav" aria-label="主导航">
+        <button type="button" data-view="burn" aria-selected="true">消耗</button>
+        <button type="button" data-view="stats" aria-selected="false">统计</button>
+        <button type="button" data-view="settings" aria-selected="false">配置</button>
+      </nav>
+      <div class="sidebar-bottom">
+        <div class="identity"><strong>燃烧者 #145473</strong><small>排行榜编号</small></div>
+        <button class="theme-button" data-theme-toggle type="button">切换深色模式</button>
+      </div>
+    </aside>
+
+    <main>
+      <div class="review-notice"><span>界面审阅稿。模型刷新会直接连接当前 API 地址。</span><button class="mobile-theme" data-theme-toggle type="button">深色模式</button></div>
+
+      <section class="view active" id="view-burn" aria-labelledby="burn-title">
+        <header class="page-header">
+          <div>
+            <span class="kicker">消耗控制台</span>
+            <h1 id="burn-title">把预算烧在明处。</h1>
+            <p>设定目标，选择任务，然后开始消耗。</p>
+          </div>
+          <div class="provider-status"><strong>OpenAI Responses</strong><small>已配置密钥</small></div>
+        </header>
+
+        <div class="burn-layout">
+          <div class="main-stack">
+            <section class="panel section">
+              <div class="section-heading">
+                <div><h2>消耗目标</h2><p>接近目标时自动缩小单轮输出预算。</p></div>
+                <div class="segmented" aria-label="目标类型">
+                  <button class="active" type="button" data-target-mode="token">定 Token</button>
+                  <button type="button" data-target-mode="money">定金额</button>
+                </div>
+              </div>
+              <div class="target-grid">
+                <div class="target-input">
+                  <label for="targetValue" id="targetUnit">TOKENS</label>
+                  <input id="targetValue" type="number" value="100000" min="1" aria-label="目标数额" />
+                </div>
+                <div class="target-meta">
+                  <div><span>当前价格</span><strong>$0.60 / M 输出</strong></div>
+                  <div><span>输入预留</span><strong>约 251 / 轮</strong></div>
+                </div>
+              </div>
+              <p class="helper">金额模式提供预算保护估算，最终账单以供应商为准。</p>
+            </section>
+
+            <section class="panel section">
+              <div class="section-heading"><div><h2>请求内容</h2><p>选择持续输出型任务，或完全自定义。</p></div></div>
+              <div class="prompt-grid">
+                <button class="prompt-option active" type="button"><strong>熵增清单</strong><small>持续生成互不相关的技术观察。</small><em>稳定输出</em></button>
+                <button class="prompt-option" type="button"><strong>未解问题推演</strong><small>围绕意识、湍流与量子引力推演。</small><em>深度思考</em></button>
+                <button class="prompt-option" type="button"><strong>递归审稿</strong><small>提出理论，以不同立场审稿并重写。</small><em>高密度</em></button>
+                <button class="prompt-option" type="button"><strong>自定义</strong><small>使用你自己的请求内容。</small><em>完全控制</em></button>
+              </div>
+              <div class="prompt-preview"><span>将发送</span><p id="promptPreview">生成一份没有实际用途的技术观察清单。每条都要具体、语法完整、主题不同，持续输出直到达到系统允许的最大长度。</p></div>
+            </section>
+          </div>
+
+          <aside>
+            <section class="console" aria-live="polite">
+              <div class="console-top"><span id="runState">等待启动</span><span id="runRounds">0 轮</span></div>
+              <div class="progress-number" id="progressRing"><div><strong id="runPercent">0.0%</strong><small id="runTokens">0 TOKEN</small></div></div>
+              <div class="console-progress"><i id="progressFill"></i></div>
+              <div class="console-stats">
+                <div><span>输入</span><strong id="inputTokens">0</strong></div>
+                <div><span>输出</span><strong id="outputTokens">0</strong></div>
+                <div><span>成本</span><strong id="runCost">$0.0000</strong></div>
+                <div><span>核验</span><strong id="verifiedRounds">0/0</strong></div>
+              </div>
+              <button class="button primary" id="startDemo" type="button">开始消耗</button>
+            </section>
+            <section class="guard"><strong>软上限保护</strong><p>按回执记账并逐轮收缩。供应商分词与计费发生在远端，无法保证最后 1 token 的绝对命中。</p></section>
+          </aside>
+        </div>
+      </section>
+
+      <section class="view" id="view-stats" aria-labelledby="stats-title">
+        <header class="page-header">
+          <div><span class="kicker">统计与排行</span><h1 id="stats-title">每一个 token 都有记录。</h1><p>查看消耗趋势、运行记录与全网排行。</p></div>
+          <button class="button secondary" id="exportPng" type="button">导出分享卡</button>
+        </header>
+
+        <div class="metrics">
+          <div class="metric"><span>今日消耗</span><strong>78.4K</strong><small>3 次运行</small></div>
+          <div class="metric"><span>累计消耗</span><strong>2.18M</strong><small>29 次运行</small></div>
+          <div class="metric"><span>估算成本</span><strong>$1.3074</strong><small>按运行时价格</small></div>
+          <div class="metric"><span>请求轮数</span><strong>146</strong><small>顺序执行</small></div>
+        </div>
+
+        <section class="panel rank-panel">
+          <div class="rank-identity">
+            <div class="rank-crest-controls">
+              <button id="rankPrev" type="button" aria-label="查看上一段位">‹</button>
+              <div class="rank-crest"><img id="rankIcon" src="public/ranks-c/flare.png" alt="耀斑段位徽章" /></div>
+              <button id="rankNext" type="button" aria-label="查看下一段位">›</button>
+            </div>
+            <div class="rank-copy">
+              <span id="rankMode">当前段位</span>
+              <h2 id="rankName">耀斑 IV</h2>
+              <div class="rank-stars" id="rankStars" aria-label="0 星，共 5 星">☆☆☆☆☆</div>
+              <div class="rank-requirement" id="rankRequirement"><span>晋级门槛</span><b id="rankThreshold">2.00M Token</b></div>
+              <div class="rank-progress" aria-hidden="true"><i id="rankProgress" style="width:9%"></i></div>
+              <small id="rankStatus">距离 耀斑 III 还差 1.82M Token</small>
+            </div>
+          </div>
+          <div class="rank-regions">
+            <div class="rank-region-head"><span>当前赛区</span><strong>中国 / 浙江省 / 杭州市</strong></div>
+            <div class="rank-scope">
+              <div><span>全球</span><strong>第 4 名</strong></div>
+              <div><span>中国</span><strong>第 3 名</strong></div>
+              <div><span>浙江省</span><strong>第 2 名</strong></div>
+              <div><span>杭州市</span><strong>第 1 名</strong></div>
+            </div>
+          </div>
+          <div class="rank-ladder">
+            <div class="rank-ladder-head">
+              <div><span>段位图鉴</span><strong id="rankRange">耀斑：2.00M 至 10.0M Token</strong></div>
+              <button id="rankReturn" type="button" hidden>返回当前段位</button>
+            </div>
+            <div class="rank-ladder-track" role="group" aria-label="全部段位">
+              <button type="button" data-rank-tier="spark"><img src="public/ranks-c/spark.png" alt="" aria-hidden="true" /><span>火种</span><small>起始段位</small></button>
+              <button type="button" data-rank-tier="core"><img src="public/ranks-c/core.png" alt="" aria-hidden="true" /><span>燃芯</span><small>需 100K</small></button>
+              <button type="button" data-rank-tier="furnace"><img src="public/ranks-c/furnace.png" alt="" aria-hidden="true" /><span>熔炉</span><small>需 500K</small></button>
+              <button class="active current" type="button" data-rank-tier="flare"><img src="public/ranks-c/flare.png" alt="" aria-hidden="true" /><span>耀斑</span><small>当前，门槛 2.00M</small></button>
+              <button type="button" data-rank-tier="star"><img src="public/ranks-c/star.png" alt="" aria-hidden="true" /><span>恒星</span><small>需 10.0M</small></button>
+              <button type="button" data-rank-tier="nova"><img src="public/ranks-c/nova.png" alt="" aria-hidden="true" /><span>超新星</span><small>需 50.0M</small></button>
+              <button type="button" data-rank-tier="singularity"><img src="public/ranks-c/singularity.png" alt="" aria-hidden="true" /><span>奇点</span><small>需 200M</small></button>
+              <button type="button" data-rank-tier="black-hole"><img src="public/ranks-c/black-hole.png" alt="" aria-hidden="true" /><span>黑洞</span><small>1.00B 起 / 32M 一星</small></button>
+            </div>
+          </div>
+        </section>
+
+        <div class="stats-top">
+          <section class="panel section">
+            <div class="section-heading">
+              <div><h2>热门模型</h2><p>近 7 天 Token 用量与模型份额。</p></div>
+              <span class="rankings-window"><i></i>最近 7 天</span>
+            </div>
+            <div class="usage-chart" aria-label="近 7 天各模型 Token 用量堆叠图">
+              <div class="usage-scale" aria-hidden="true"><span>78.4K</span><span>39.2K</span><span>0</span></div>
+              <div class="usage-plot">
+                <div class="usage-grid" aria-hidden="true"><i></i><i></i><i></i></div>
+                <div class="usage-bars">
+                  <div class="usage-day"><span class="usage-value">19.6K</span><div class="usage-stack"><i class="tone-0" style="height:12%"></i><i class="tone-1" style="height:8%"></i><i class="tone-2" style="height:5%"></i></div><small>周三</small></div>
+                  <div class="usage-day"><span class="usage-value">45.5K</span><div class="usage-stack"><i class="tone-0" style="height:28%"></i><i class="tone-1" style="height:18%"></i><i class="tone-2" style="height:12%"></i></div><small>周四</small></div>
+                  <div class="usage-day"><span class="usage-value">31.4K</span><div class="usage-stack"><i class="tone-0" style="height:15%"></i><i class="tone-1" style="height:17%"></i><i class="tone-2" style="height:8%"></i></div><small>周五</small></div>
+                  <div class="usage-day"><span class="usage-value">58.8K</span><div class="usage-stack"><i class="tone-0" style="height:34%"></i><i class="tone-1" style="height:24%"></i><i class="tone-2" style="height:17%"></i></div><small>周六</small></div>
+                  <div class="usage-day"><span class="usage-value">38.4K</span><div class="usage-stack"><i class="tone-0" style="height:18%"></i><i class="tone-1" style="height:21%"></i><i class="tone-2" style="height:10%"></i></div><small>周日</small></div>
+                  <div class="usage-day"><span class="usage-value">72.1K</span><div class="usage-stack"><i class="tone-0" style="height:42%"></i><i class="tone-1" style="height:30%"></i><i class="tone-2" style="height:20%"></i></div><small>周一</small></div>
+                  <div class="usage-day"><span class="usage-value">50.2K</span><div class="usage-stack"><i class="tone-0" style="height:30%"></i><i class="tone-1" style="height:21%"></i><i class="tone-2" style="height:13%"></i></div><small>周二</small></div>
+                </div>
+              </div>
+            </div>
+            <div class="model-list" aria-label="模型 Token 排行">
+              <div class="model-row"><span>01</span><i class="tone-0"></i><div><strong>gpt-4o-mini</strong><small>41.8% 份额</small></div><b>32.8K</b></div>
+              <div class="model-row"><span>02</span><i class="tone-1"></i><div><strong>claude-sonnet-4-6</strong><small>34.6% 份额</small></div><b>27.1K</b></div>
+              <div class="model-row"><span>03</span><i class="tone-2"></i><div><strong>deepseek-reasoner</strong><small>23.6% 份额</small></div><b>18.5K</b></div>
+            </div>
+          </section>
+
+          <section>
+            <div class="share-card">
+              <b>TOKEN KILLER</b>
+              <strong>78.4K</strong>
+              <p>今日无意义消耗 TOKEN</p>
+              <div class="share-rank"><span>全球第 4 名</span><span>耀斑 IV</span></div>
+              <div class="share-foot"><span>累计 2.18M</span><span>燃烧者 #145473</span></div>
+            </div>
+            <div class="share-actions">
+              <button class="button primary" id="shareX" type="button">分享到 X</button>
+              <button class="button secondary" id="copyShare" type="button">复制文案</button>
+            </div>
+          </section>
+        </div>
+
+        <div class="stats-bottom">
+          <section class="panel section">
+            <div class="section-heading"><div><h2>运行记录</h2><p>展示最近 500 次运行。</p></div></div>
+            <div class="history-list">
+              <div class="history-row"><div><strong>gpt-4o-mini</strong><small>2026/7/14 01:18</small></div><b>32.8K</b><div><strong>$0.0197</strong><small>8 轮</small></div></div>
+              <div class="history-row"><div><strong>claude-sonnet-4-6</strong><small>2026/7/14 00:42</small></div><b>27.1K</b><div><strong>$0.4065</strong><small>6 轮</small></div></div>
+              <div class="history-row"><div><strong>deepseek-reasoner</strong><small>2026/7/13 23:55</small></div><b>18.5K</b><div><strong>$0.0104</strong><small>5 轮</small></div></div>
+            </div>
+          </section>
+
+          <section class="panel section">
+            <div class="section-heading"><div><h2>全网排行榜</h2><p class="leaderboard-source">数据来源 <strong id="leaderboardSource">rank.token-killer.workers.dev</strong></p></div></div>
+            <div class="board-tabs" role="group" aria-label="排行榜地区">
+              <button class="active" type="button" data-board-scope="global">全球</button>
+              <button type="button" data-board-scope="country">中国</button>
+              <button type="button" data-board-scope="province">浙江省</button>
+              <button type="button" data-board-scope="city">杭州市</button>
+            </div>
+            <div class="ranking-list" id="rankingList">
+              <div class="ranking-row" data-ranking-row><span>01</span><div><strong>燃烧者 #482917</strong><small>恒星 IV，43 次运行</small></div><div class="ranking-stats"><span><small>Token</small><b>18.7M</b></span><span><small>轮数</small><b>284</b></span><span><small>消费</small><b>$11.42</b></span></div></div>
+              <div class="ranking-row" data-ranking-row><span>02</span><div><strong>燃烧者 #831204</strong><small>恒星 V，31 次运行</small></div><div class="ranking-stats"><span><small>Token</small><b>12.3M</b></span><span><small>轮数</small><b>197</b></span><span><small>消费</small><b>$8.76</b></span></div></div>
+              <div class="ranking-row" data-ranking-row><span>03</span><div><strong>燃烧者 #731086</strong><small>耀斑 I，24 次运行</small></div><div class="ranking-stats"><span><small>Token</small><b>9.84M</b></span><span><small>轮数</small><b>151</b></span><span><small>消费</small><b>$5.19</b></span></div></div>
+              <div class="ranking-row current" data-ranking-row><span>04</span><div><strong>燃烧者 #145473</strong><small>耀斑 IV，29 次运行</small></div><div class="ranking-stats"><span><small>Token</small><b>2.18M</b></span><span><small>轮数</small><b>146</b></span><span><small>消费</small><b>$1.31</b></span></div></div>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="view-settings" aria-labelledby="settings-title">
+        <header class="page-header">
+          <div><span class="kicker">配置</span><h1 id="settings-title">凭证归你掌控。</h1><p>设置请求、账号与消耗策略。</p></div>
+        </header>
+
+        <div class="settings-stack">
+          <section class="panel settings-section">
+            <div class="settings-title"><h2>请求格式与鉴权</h2><p>选择请求协议，填写兼容地址和凭据。</p></div>
+            <div class="form-grid">
+              <div class="field full">
+                <label for="formatSelect">请求格式</label>
+                <select id="formatSelect">
+                  <option value="responses">OpenAI Responses</option>
+                  <option value="chat">OpenAI Chat Completions</option>
+                  <option value="completions">OpenAI Completions（旧版）</option>
+                  <option value="anthropic">Anthropic Messages</option>
+                  <option value="gemini">Gemini generateContent</option>
+                </select>
+              </div>
+              <div class="field full">
+                <label for="endpointInput">请求地址</label>
+                <input id="endpointInput" type="url" value="https://api.openai.com/v1/responses" spellcheck="false" />
+              </div>
+              <div class="field">
+                <label for="modelInput">模型 ID</label>
+                <div class="model-picker"><input id="modelInput" list="reviewModelCatalog" type="text" value="gpt-4o-mini" spellcheck="false" /><button id="refreshModels" type="button">刷新</button></div>
+                <datalist id="reviewModelCatalog"></datalist>
+                <small id="modelStatus">点击刷新获取可用模型，也可以直接填写模型 ID；价格按 OpenRouter 目录匹配。</small>
+              </div>
+              <div class="field">
+                <label for="apiKeyInput">API Key</label>
+                <div class="secret-wrap"><input id="apiKeyInput" type="password" value="" placeholder="sk-..." autocomplete="off" spellcheck="false" /><button id="toggleSecret" type="button">显示</button></div>
+                <small>用于鉴权模型目录与推理请求。</small>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel settings-section">
+            <div class="settings-title"><h2>消费版订阅账号</h2><p>支持 ChatGPT、Claude、Gemini 与 Grok 账号登录。</p></div>
+            <div class="subscription-actions">
+              <button type="button">连接 ChatGPT</button>
+              <button type="button">连接 Claude</button>
+              <button type="button">连接 Gemini</button>
+              <button type="button">连接 Grok</button>
+            </div>
+            <div class="inline-status" id="accountStatus">尚未连接消费版账号</div>
+          </section>
+
+          <section class="panel settings-section">
+            <div class="settings-title"><h2>请求策略</h2><p>顺序执行，避免多个在途请求同时越过预算。</p></div>
+            <div class="form-grid">
+              <div class="field"><label for="batchInput">单轮最大输出</label><input id="batchInput" type="number" value="4096" min="1" /></div>
+              <div class="field"><label>响应方式</label><label class="toggle"><input id="streamToggle" type="checkbox" checked /><span id="streamLabel">启用流式响应</span></label></div>
+              <div class="field full"><label for="systemPrompt">系统提示词</label><textarea id="systemPrompt">你是一台只执行当前任务的语言模型。不要调用工具，不要提前结束。</textarea></div>
+            </div>
+          </section>
+
+          <section class="panel settings-section">
+            <div class="settings-title"><h2>数据与全网榜</h2><p>设置排行榜参与方式和服务地址。</p></div>
+            <div class="form-grid">
+              <div class="field identity-field"><label for="participantId">排行榜编号</label><output class="participant-id" id="participantId">燃烧者 #145473</output><small>自动生成，无需注册或填写昵称。</small></div>
+              <div class="field"><label for="leaderboardUrl">排行榜服务地址</label><input id="leaderboardUrl" type="url" value="https://rank.token-killer.workers.dev" placeholder="同域 /api" /></div>
+              <div class="field full"><label>公开汇总</label><label class="toggle"><input id="publishLeaderboard" type="checkbox" checked />将完整 usage 运行发布到全网榜</label><small>公开 token、费用、轮数、模型和时长。</small></div>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <nav class="mobile-nav" aria-label="移动端导航">
+      <button type="button" data-view="burn" aria-selected="true">消耗</button>
+      <button type="button" data-view="stats" aria-selected="false">统计</button>
+      <button type="button" data-view="settings" aria-selected="false">配置</button>
+    </nav>
+  </div>
+
+  <script>
+    const root = document.documentElement
+    const views = [...document.querySelectorAll('.view')]
+    const navButtons = [...document.querySelectorAll('[data-view]')]
+
+    function showView(name) {
+      views.forEach((view) => view.classList.toggle('active', view.id === `view-${name}`))
+      navButtons.forEach((button) => button.setAttribute('aria-selected', String(button.dataset.view === name)))
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    }
+
+    navButtons.forEach((button) => button.addEventListener('click', () => showView(button.dataset.view)))
+
+    function toggleTheme() {
+      const dark = root.dataset.theme === 'dark'
+      if (dark) delete root.dataset.theme
+      else root.dataset.theme = 'dark'
+      document.querySelectorAll('[data-theme-toggle]').forEach((button) => {
+        button.textContent = dark
+          ? button.classList.contains('mobile-theme') ? '深色模式' : '切换深色模式'
+          : button.classList.contains('mobile-theme') ? '浅色模式' : '切换浅色模式'
+      })
+    }
+
+    document.querySelectorAll('[data-theme-toggle]').forEach((button) => button.addEventListener('click', toggleTheme))
+
+    document.querySelectorAll('[data-target-mode]').forEach((button) => {
+      button.addEventListener('click', () => {
+        document.querySelectorAll('[data-target-mode]').forEach((item) => item.classList.toggle('active', item === button))
+        const money = button.dataset.targetMode === 'money'
+        document.getElementById('targetUnit').textContent = money ? 'USD' : 'TOKENS'
+        document.getElementById('targetValue').value = money ? '10' : '100000'
+      })
+    })
+
+    const promptCopy = {
+      '熵增清单': '生成一份没有实际用途的技术观察清单。每条都要具体、语法完整、主题不同，持续输出直到达到系统允许的最大长度。',
+      '未解问题推演': '围绕意识的可计算性、三维湍流与量子引力建立可证伪框架，持续寻找反例并修正。',
+      '递归审稿': '提出一个原创理论，分别从数学、实验与哲学立场审稿，根据每轮意见继续重写。',
+      '自定义': '在配置完成后，这里将展示你的自定义请求内容。',
+    }
+
+    document.querySelectorAll('.prompt-option').forEach((button) => {
+      button.addEventListener('click', () => {
+        document.querySelectorAll('.prompt-option').forEach((item) => item.classList.toggle('active', item === button))
+        const name = button.querySelector('strong').textContent
+        document.getElementById('promptPreview').textContent = promptCopy[name]
+      })
+    })
+
+    const startDemo = document.getElementById('startDemo')
+    startDemo.addEventListener('click', () => {
+      const running = startDemo.dataset.running === 'true'
+      if (running) {
+        startDemo.dataset.running = 'false'
+        startDemo.textContent = '开始消耗'
+        document.getElementById('runState').textContent = '已停止'
+        return
+      }
+      startDemo.dataset.running = 'true'
+      startDemo.textContent = '停止演示'
+      document.getElementById('runState').textContent = '第 7 轮请求中'
+      document.getElementById('runRounds').textContent = '6 轮'
+      document.getElementById('runPercent').textContent = '61.8%'
+      document.getElementById('runTokens').textContent = '61.8K TOKEN'
+      document.getElementById('progressRing').style.setProperty('--ring-progress', '222.48deg')
+      document.getElementById('progressFill').style.width = '61.8%'
+      document.getElementById('inputTokens').textContent = '1.7K'
+      document.getElementById('outputTokens').textContent = '60.1K'
+      document.getElementById('runCost').textContent = '$0.0363'
+      document.getElementById('verifiedRounds').textContent = '6/6'
+    })
+
+    const formatSelect = document.getElementById('formatSelect')
+    const endpointInput = document.getElementById('endpointInput')
+    const modelInput = document.getElementById('modelInput')
+    const modelStatus = document.getElementById('modelStatus')
+    const modelCatalog = document.getElementById('reviewModelCatalog')
+    const apiKeyInput = document.getElementById('apiKeyInput')
+    const streamToggle = document.getElementById('streamToggle')
+    const streamLabel = document.getElementById('streamLabel')
+    const formatPresets = {
+      responses: ['gpt-4o-mini', 'https://api.openai.com/v1/responses'],
+      chat: ['gpt-4o-mini', 'https://api.openai.com/v1/chat/completions'],
+      completions: ['gpt-3.5-turbo-instruct', 'https://api.openai.com/v1/completions'],
+      anthropic: ['claude-sonnet-4-6', 'https://api.anthropic.com/v1/messages'],
+      gemini: ['gemini-2.5-flash', 'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent'],
+    }
+    function updateModelCatalog(models) {
+      modelCatalog.replaceChildren(...models.map((model) => {
+        const option = document.createElement('option')
+        option.value = model.id
+        if (model.name && model.name !== model.id) option.label = model.name
+        return option
+      }))
+    }
+
+    function deriveModelCatalogUrl(endpoint, format) {
+      let url
+      try {
+        url = new URL(endpoint)
+      } catch {
+        throw new Error('请求地址格式无效')
+      }
+      if (!['http:', 'https:'].includes(url.protocol)) throw new Error('请求地址仅支持 HTTP(S)')
+
+      if (format === 'gemini') {
+        url.pathname = url.pathname
+          .replace(/\/models\/[^/]+(?::(?:stream)?generateContent)?\/?$/i, '/models')
+          .replace(/\/$/, '')
+        if (!/\/models$/i.test(url.pathname)) url.pathname = `${url.pathname}/models`.replace(/\/+/g, '/')
+        url.search = ''
+        url.searchParams.set('pageSize', '1000')
+        return url
+      }
+
+      const replaced = url.pathname.replace(
+        /\/(?:chat\/completions|responses|completions|messages)\/?$/i,
+        '/models',
+      )
+      url.pathname = replaced === url.pathname
+        ? `${url.pathname.replace(/\/$/, '')}/models`.replace(/\/+/g, '/')
+        : replaced
+      url.search = ''
+      return url
+    }
+
+    function normalizeModelResponse(payload, format) {
+      const items = Array.isArray(payload)
+        ? payload
+        : Array.isArray(payload?.data)
+          ? payload.data
+          : Array.isArray(payload?.models)
+            ? payload.models
+            : []
+      return items
+        .filter((item) => {
+          if (format !== 'gemini' || !Array.isArray(item?.supportedGenerationMethods)) return true
+          return item.supportedGenerationMethods.includes('generateContent')
+        })
+        .map((item) => {
+          const rawId = typeof item === 'string' ? item : item?.id || item?.name || item?.model || ''
+          const id = format === 'gemini' ? String(rawId).replace(/^models\//, '') : String(rawId)
+          return {
+            id,
+            name: typeof item === 'string' ? item : item?.displayName || item?.name || item?.id || id,
+          }
+        })
+        .filter((item) => item.id)
+        .filter((item, index, all) => all.findIndex((candidate) => candidate.id === item.id) === index)
+        .sort((a, b) => a.id.localeCompare(b.id))
+    }
+
+    function modelRequestHeaders(format, apiKey) {
+      const headers = { Accept: 'application/json' }
+      if (format === 'anthropic') {
+        if (apiKey) headers['x-api-key'] = apiKey
+        headers['anthropic-version'] = '2023-06-01'
+        headers['anthropic-dangerous-direct-browser-access'] = 'true'
+      } else if (format === 'gemini') {
+        if (apiKey) headers['x-goog-api-key'] = apiKey
+      } else if (apiKey) {
+        headers.Authorization = `Bearer ${apiKey}`
+      }
+      return headers
+    }
+
+    formatSelect.addEventListener('change', () => {
+      const preset = formatPresets[formatSelect.value]
+      modelInput.value = preset[0]
+      endpointInput.value = preset[1]
+      updateModelCatalog([])
+      modelStatus.classList.remove('error')
+      modelStatus.textContent = '点击刷新获取可用模型，也可以直接填写模型 ID；价格按 OpenRouter 目录匹配。'
+      const legacy = formatSelect.value === 'completions'
+      streamToggle.disabled = legacy
+      streamToggle.checked = !legacy
+      streamLabel.textContent = legacy ? '完整响应（保留 usage）' : '启用流式响应'
+    })
+
+    const refreshModels = document.getElementById('refreshModels')
+    refreshModels.addEventListener('click', async () => {
+      refreshModels.disabled = true
+      refreshModels.textContent = '获取中'
+      modelStatus.classList.remove('error')
+      modelStatus.textContent = '正在获取可用模型…'
+      try {
+        const format = formatSelect.value
+        const catalogUrl = deriveModelCatalogUrl(endpointInput.value.trim(), format)
+        const response = await fetch(catalogUrl, {
+          method: 'GET',
+          headers: modelRequestHeaders(format, apiKeyInput.value.trim()),
+          cache: 'no-store',
+        })
+        let payload
+        try {
+          payload = await response.json()
+        } catch {
+          payload = null
+        }
+        if (!response.ok) {
+          throw new Error(payload?.error?.message || payload?.message || `模型目录返回 ${response.status} ${response.statusText}`)
+        }
+        const models = normalizeModelResponse(payload, format)
+        if (!models.length) throw new Error('模型目录没有返回可用模型')
+        updateModelCatalog(models)
+        modelStatus.textContent = `已从 ${catalogUrl.host} 获取 ${models.length} 个可用模型；未列出的模型 ID 仍可直接填写。`
+      } catch (error) {
+        updateModelCatalog([])
+        modelStatus.classList.add('error')
+        modelStatus.textContent = error instanceof TypeError
+          ? '无法连接模型目录，请检查地址、网络或目标接口的 CORS 设置。'
+          : error.message
+      } finally {
+        refreshModels.disabled = false
+        refreshModels.textContent = '刷新'
+      }
+    })
+
+    const leaderboardUrl = document.getElementById('leaderboardUrl')
+    const leaderboardSource = document.getElementById('leaderboardSource')
+    function updateLeaderboardSource() {
+      const raw = leaderboardUrl.value.trim()
+      let label = '当前站点 /api'
+      if (raw.startsWith('/')) {
+        label = `当前站点${raw}`
+      } else if (raw) {
+        try {
+          const parsed = new URL(raw)
+          if (['http:', 'https:'].includes(parsed.protocol)) {
+            label = `${parsed.host}${parsed.pathname === '/' ? '' : parsed.pathname}`
+          }
+        } catch {
+          label = '当前站点 /api'
+        }
+      }
+      leaderboardSource.textContent = label.slice(0, 96)
+    }
+    leaderboardUrl.addEventListener('input', updateLeaderboardSource)
+    updateLeaderboardSource()
+
+    document.getElementById('toggleSecret').addEventListener('click', (event) => {
+      const input = document.getElementById('apiKeyInput')
+      const visible = input.type === 'text'
+      input.type = visible ? 'password' : 'text'
+      event.currentTarget.textContent = visible ? '显示' : '隐藏'
+    })
+
+    document.querySelectorAll('.subscription-actions button').forEach((button) => {
+      button.addEventListener('click', () => {
+        document.getElementById('accountStatus').textContent = `${button.textContent.replace('连接 ', '')} 登录流程已准备`
+      })
+    })
+
+    const rankTiers = [
+      { id: 'spark', name: '火种', min: 0, max: 100000, divisions: 3 },
+      { id: 'core', name: '燃芯', min: 100000, max: 500000, divisions: 3 },
+      { id: 'furnace', name: '熔炉', min: 500000, max: 2000000, divisions: 4 },
+      { id: 'flare', name: '耀斑', min: 2000000, max: 10000000, divisions: 4 },
+      { id: 'star', name: '恒星', min: 10000000, max: 50000000, divisions: 5 },
+      { id: 'nova', name: '超新星', min: 50000000, max: 200000000, divisions: 5 },
+      { id: 'singularity', name: '奇点', min: 200000000, max: 1000000000, divisions: 5 },
+      { id: 'black-hole', name: '黑洞', min: 1000000000, max: null, divisions: 1, starStep: 32000000 },
+    ]
+    const currentRankTokens = 2180000
+    const romanDivisions = ['', 'I', 'II', 'III', 'IV', 'V']
+
+    function rankAtTokens(value) {
+      const tokens = Math.max(0, Number(value) || 0)
+      const tier = rankTiers.find((item) => item.max === null || tokens < item.max)
+
+      if (tier.max === null) {
+        const stars = Math.floor((tokens - tier.min) / tier.starStep) + 1
+        const threshold = tier.min + ((stars - 1) * tier.starStep)
+        const nextThreshold = threshold + tier.starStep
+        return {
+          ...tier,
+          fullName: `${tier.name} ${stars} 星`,
+          stars,
+          maxStars: null,
+          infiniteStars: true,
+          progress: Math.min(99.9, Math.round(((tokens - threshold) / tier.starStep) * 1000) / 10),
+          nextName: `${tier.name} ${stars + 1} 星`,
+          tokensToNext: nextThreshold - tokens,
+          threshold,
+        }
+      }
+
+      const span = tier.max - tier.min
+      const tierProgress = Math.min(0.999999, Math.max(0, (tokens - tier.min) / span))
+      const divisionOffset = Math.min(tier.divisions - 1, Math.floor(tierProgress * tier.divisions))
+      const divisionNumber = tier.divisions - divisionOffset
+      const divisionProgress = (tierProgress * tier.divisions) - divisionOffset
+      const divisionCeiling = tier.min + span * ((divisionOffset + 1) / tier.divisions)
+      const nextTier = rankTiers[rankTiers.indexOf(tier) + 1]
+      return {
+        ...tier,
+        fullName: `${tier.name} ${romanDivisions[divisionNumber]}`,
+        stars: Math.min(5, Math.floor(divisionProgress * 5)),
+        maxStars: 5,
+        infiniteStars: false,
+        progress: Math.round(divisionProgress * 1000) / 10,
+        nextName: divisionNumber === 1
+          ? nextTier?.max === null ? `${nextTier.name} 1 星` : nextTier?.name
+          : `${tier.name} ${romanDivisions[divisionNumber - 1]}`,
+        tokensToNext: Math.ceil(divisionCeiling - tokens),
+        threshold: tier.min,
+      }
+    }
+
+    function renderRankStars(rank) {
+      const element = document.getElementById('rankStars')
+      element.hidden = false
+      element.classList.toggle('infinite', rank.infiniteStars)
+
+      if (!rank.infiniteStars) {
+        element.textContent = `${'★'.repeat(rank.stars)}${'☆'.repeat(rank.maxStars - rank.stars)}`
+        element.setAttribute('aria-label', `${rank.stars} 星，共 ${rank.maxStars} 星`)
+        return
+      }
+
+      const icon = document.createElement('span')
+      icon.className = 'rank-star-icon'
+      icon.textContent = '★'
+      icon.setAttribute('aria-hidden', 'true')
+      const count = document.createElement('strong')
+      count.textContent = String(rank.stars)
+      element.replaceChildren(icon, count)
+      element.setAttribute('aria-label', `${rank.name} ${rank.stars}`)
+    }
+
+    const currentRank = rankAtTokens(currentRankTokens)
+    const currentTierIndex = rankTiers.findIndex((tier) => tier.id === currentRank.id)
+    let viewedTierIndex = currentTierIndex
+
+    function compactTokens(value) {
+      if (value >= 1000000000) return `${(value / 1000000000).toFixed(2)}B`
+      if (value >= 1000000) {
+        const scaled = value / 1000000
+        return `${scaled.toFixed(scaled >= 100 ? 0 : scaled >= 10 ? 1 : 2)}M`
+      }
+      if (value >= 1000) return `${Math.round(value / 1000)}K`
+      return String(value)
+    }
+
+    function renderTier(index) {
+      viewedTierIndex = Math.max(0, Math.min(rankTiers.length - 1, index))
+      const tier = rankTiers[viewedTierIndex]
+      const isCurrent = viewedTierIndex === currentTierIndex
+      const isBlackHole = tier.id === 'black-hole'
+      const unlocked = currentRankTokens >= tier.min
+      const remaining = Math.max(0, tier.min - currentRankTokens)
+      const progress = isCurrent ? currentRank.progress : unlocked ? 100 : Math.min(100, (currentRankTokens / Math.max(1, tier.min)) * 100)
+
+      document.getElementById('rankIcon').src = `public/ranks-c/${tier.id}.png`
+      document.getElementById('rankIcon').alt = `${tier.name}段位徽章`
+      document.getElementById('rankMode').textContent = isCurrent ? '当前段位' : '查看段位'
+      document.getElementById('rankName').textContent = isCurrent && !currentRank.infiniteStars ? currentRank.fullName : tier.name
+      if (isCurrent) renderRankStars(currentRank)
+      else if (isBlackHole) renderRankStars(rankAtTokens(tier.min))
+      else document.getElementById('rankStars').hidden = true
+      document.getElementById('rankThreshold').textContent = isCurrent && currentRank.infiniteStars
+        ? `${compactTokens(currentRank.threshold)} Token`
+        : tier.min ? `${compactTokens(tier.min)} Token` : '起始段位'
+      document.getElementById('rankProgress').style.width = `${progress}%`
+      document.getElementById('rankStatus').textContent = isCurrent
+        ? `距离 ${currentRank.nextName} 还差 ${compactTokens(currentRank.tokensToNext)} Token`
+        : unlocked
+          ? `已达到 ${tier.name}，当前累计 2.18M Token`
+          : `距离 ${isBlackHole ? '黑洞 1 星' : tier.name} 还差 ${compactTokens(remaining)} Token`
+      document.getElementById('rankRange').textContent = tier.max
+        ? `${tier.name}：${compactTokens(tier.min)} 至 ${compactTokens(tier.max)} Token`
+        : `${tier.name}：${compactTokens(tier.min)} Token 起，每 ${compactTokens(tier.starStep)} Token 增加 1 星`
+      document.getElementById('rankReturn').hidden = isCurrent
+      document.getElementById('rankPrev').disabled = viewedTierIndex === 0
+      document.getElementById('rankNext').disabled = viewedTierIndex === rankTiers.length - 1
+      document.querySelectorAll('[data-rank-tier]').forEach((button) => {
+        button.classList.toggle('active', button.dataset.rankTier === tier.id)
+      })
+    }
+
+    document.getElementById('rankPrev').addEventListener('click', () => renderTier(viewedTierIndex - 1))
+    document.getElementById('rankNext').addEventListener('click', () => renderTier(viewedTierIndex + 1))
+    document.getElementById('rankReturn').addEventListener('click', () => renderTier(currentTierIndex))
+    document.querySelectorAll('[data-rank-tier]').forEach((button) => {
+      button.addEventListener('click', () => renderTier(rankTiers.findIndex((tier) => tier.id === button.dataset.rankTier)))
+    })
+    renderTier(currentTierIndex)
+
+    const rankingData = {
+      global: [
+        { name: '燃烧者 #482917', tier: '恒星 IV', runs: 43, tokens: '18.7M', rounds: '284', cost: '$11.42' },
+        { name: '燃烧者 #831204', tier: '恒星 V', runs: 31, tokens: '12.3M', rounds: '197', cost: '$8.76' },
+        { name: '燃烧者 #731086', tier: '耀斑 I', runs: 24, tokens: '9.84M', rounds: '151', cost: '$5.19' },
+        { name: '燃烧者 #145473', tier: '耀斑 IV', runs: 29, tokens: '2.18M', rounds: '146', cost: '$1.31' },
+      ],
+      country: [
+        { name: '燃烧者 #482917', tier: '恒星 IV', runs: 43, tokens: '18.7M', rounds: '284', cost: '$11.42' },
+        { name: '燃烧者 #731086', tier: '耀斑 I', runs: 24, tokens: '9.84M', rounds: '151', cost: '$5.19' },
+        { name: '燃烧者 #145473', tier: '耀斑 IV', runs: 29, tokens: '2.18M', rounds: '146', cost: '$1.31' },
+        { name: '燃烧者 #344201', tier: '耀斑 IV', runs: 18, tokens: '1.76M', rounds: '96', cost: '$0.94' },
+      ],
+      province: [
+        { name: '燃烧者 #731086', tier: '耀斑 I', runs: 24, tokens: '9.84M', rounds: '151', cost: '$5.19' },
+        { name: '燃烧者 #145473', tier: '耀斑 IV', runs: 29, tokens: '2.18M', rounds: '146', cost: '$1.31' },
+        { name: '燃烧者 #620714', tier: '熔炉 I', runs: 15, tokens: '1.44M', rounds: '82', cost: '$0.73' },
+        { name: '燃烧者 #211905', tier: '熔炉 II', runs: 12, tokens: '1.08M', rounds: '67', cost: '$0.52' },
+      ],
+      city: [
+        { name: '燃烧者 #145473', tier: '耀斑 IV', runs: 29, tokens: '2.18M', rounds: '146', cost: '$1.31' },
+        { name: '燃烧者 #620714', tier: '熔炉 I', runs: 15, tokens: '1.44M', rounds: '82', cost: '$0.73' },
+        { name: '燃烧者 #211905', tier: '熔炉 II', runs: 12, tokens: '1.08M', rounds: '67', cost: '$0.52' },
+        { name: '燃烧者 #905321', tier: '熔炉 III', runs: 8, tokens: '768K', rounds: '44', cost: '$0.31' },
+      ],
+    }
+
+    function renderRanking(scope) {
+      const rows = document.querySelectorAll('[data-ranking-row]')
+      rankingData[scope].forEach((item, index) => {
+        const row = rows[index]
+        const values = row.querySelectorAll('.ranking-stats b')
+        row.children[0].textContent = String(index + 1).padStart(2, '0')
+        row.children[1].querySelector('strong').textContent = item.name
+        row.children[1].querySelector('small').textContent = `${item.tier}，${item.runs} 次运行`
+        values[0].textContent = item.tokens
+        values[1].textContent = item.rounds
+        values[2].textContent = item.cost
+        row.classList.toggle('current', item.name === '燃烧者 #145473')
+      })
+    }
+
+    document.querySelectorAll('[data-board-scope]').forEach((button) => {
+      button.addEventListener('click', () => {
+        document.querySelectorAll('[data-board-scope]').forEach((item) => item.classList.toggle('active', item === button))
+        renderRanking(button.dataset.boardScope)
+      })
+    })
+
+    const deploymentUrl = location.protocol === 'file:'
+      ? 'https://token-killer.example'
+      : new URL('.', location.href).href.replace(/\/$/, '')
+    const shareText = `我今天用 Token Killer 消耗了 78.4K 个无意义 Token，累计 2.18M。我位列全球第 4 名，你也快来【${deploymentUrl}】浪费 Token 吧。`
+    document.getElementById('copyShare').addEventListener('click', async (event) => {
+      const button = event.currentTarget
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(shareText)
+      } else {
+        const copyArea = document.createElement('textarea')
+        copyArea.value = shareText
+        copyArea.style.position = 'fixed'
+        copyArea.style.opacity = '0'
+        document.body.appendChild(copyArea)
+        copyArea.select()
+        document.execCommand('copy')
+        copyArea.remove()
+      }
+      button.textContent = '已复制'
+    })
+    document.getElementById('shareX').addEventListener('click', () => {
+      window.open(`https://x.com/intent/post?text=${encodeURIComponent(shareText)}`, '_blank', 'noopener,noreferrer')
+    })
+
+    document.getElementById('exportPng').addEventListener('click', () => {
+      const canvas = document.createElement('canvas')
+      canvas.width = 1200
+      canvas.height = 675
+      const context = canvas.getContext('2d')
+      context.fillStyle = '#f3f0e9'
+      context.fillRect(0, 0, 1200, 675)
+      context.fillStyle = '#d85b3c'
+      context.fillRect(0, 0, 14, 675)
+      context.fillStyle = '#24221e'
+      context.font = '700 25px ui-monospace, monospace'
+      context.fillText('TOKEN KILLER', 72, 82)
+      context.fillStyle = '#625e56'
+      context.font = '500 19px sans-serif'
+      context.fillText('TOKEN 消耗报告', 72, 118)
+      context.fillStyle = '#24221e'
+      context.font = '800 96px ui-monospace, monospace'
+      context.fillText('78.4K', 72, 340)
+      context.fillStyle = '#625e56'
+      context.font = '500 24px sans-serif'
+      context.fillText('今日无意义消耗 TOKEN', 76, 388)
+      context.fillStyle = '#d85b3c'
+      context.font = '700 22px ui-monospace, monospace'
+      context.fillText('全球 #4 / 耀斑 IV', 76, 456)
+      context.fillStyle = '#24221e'
+      context.font = '700 24px ui-monospace, monospace'
+      context.fillText('累计 2.18M', 76, 550)
+      context.textAlign = 'right'
+      context.fillText('燃烧者 #145473', 1128, 550)
+      const link = document.createElement('a')
+      link.download = 'token-killer-review.png'
+      link.href = canvas.toDataURL('image/png')
+      link.click()
+    })
+  </script>
+</body>
+</html>
