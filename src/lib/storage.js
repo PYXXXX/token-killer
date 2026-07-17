@@ -1,7 +1,65 @@
+import { getProviderIdentity } from './providerGuard.js'
+
 const SETTINGS_KEY = 'token-killer:settings:v1'
 const RUNS_KEY = 'token-killer:runs:v1'
 const ONBOARDED_KEY = 'token-killer:onboarded:v1'
 const INSTALLATION_KEY = 'token-killer:installation:v1'
+const PROVIDER_BLOCKLIST_KEY = 'token-killer:provider-blocklist:v1'
+
+function sanitizeProviderBlock(record) {
+  if (!record || typeof record !== 'object' || !record.key) return null
+  return {
+    key: String(record.key),
+    provider: String(record.provider || 'custom'),
+    endpoint: String(record.endpoint || ''),
+    reasonCode: String(record.reasonCode || ''),
+    status: Number(record.status) || 0,
+    blockedAt: Number(record.blockedAt) || Date.now(),
+  }
+}
+
+export function readProviderBlocklist() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(PROVIDER_BLOCKLIST_KEY) || '[]')
+    if (!Array.isArray(parsed)) return []
+    return parsed.map(sanitizeProviderBlock).filter(Boolean)
+  } catch {
+    return []
+  }
+}
+
+export function isProviderBlocked(settings) {
+  const { key } = getProviderIdentity(settings)
+  return readProviderBlocklist().find((record) => record.key === key) || null
+}
+
+export function blockProvider(settings, errorInfo = {}) {
+  const identity = getProviderIdentity(settings)
+  const record = {
+    key: identity.key,
+    provider: identity.provider,
+    endpoint: identity.endpoint,
+    reasonCode: String(errorInfo.code || errorInfo.reasonCode || ''),
+    status: Number(errorInfo.status) || 0,
+    blockedAt: Date.now(),
+  }
+  const remaining = readProviderBlocklist().filter((item) => item.key !== identity.key)
+  localStorage.setItem(PROVIDER_BLOCKLIST_KEY, JSON.stringify([record, ...remaining]))
+  return record
+}
+
+export function unblockProvider(key) {
+  const normalizedKey = String(key || '')
+  const records = readProviderBlocklist()
+  const remaining = records.filter((record) => record.key !== normalizedKey)
+  if (remaining.length === records.length) return false
+  localStorage.setItem(PROVIDER_BLOCKLIST_KEY, JSON.stringify(remaining))
+  return true
+}
+
+export function clearProviderBlocklist() {
+  localStorage.removeItem(PROVIDER_BLOCKLIST_KEY)
+}
 
 export function readSettings(fallback) {
   try {
@@ -79,4 +137,5 @@ export function clearLocalData() {
   localStorage.removeItem(RUNS_KEY)
   localStorage.removeItem(ONBOARDED_KEY)
   localStorage.removeItem(INSTALLATION_KEY)
+  clearProviderBlocklist()
 }

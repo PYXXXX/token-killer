@@ -86,6 +86,44 @@ export function deleteSubscriptionAccount(_base, accountId) {
   return deleteLocalAccount(accountId)
 }
 
+export async function checkSubscriptionService(base) {
+  let payload
+  try {
+    payload = await request(base, '/api/health')
+  } catch (error) {
+    if (/无法识别的响应/.test(error.message)) {
+      throw new Error('没有检测到兼容的 OAuth 授权服务')
+    }
+    if (/Origin is not allowed/.test(error.message)) {
+      throw new Error('当前站点不在 OAuth 授权服务的允许列表')
+    }
+    if (error instanceof TypeError) {
+      throw new Error('无法连接 OAuth 授权服务，请检查地址和跨域设置')
+    }
+    throw error
+  }
+
+  if (payload?.service !== 'token-killer-community' || !payload.subscriptionOAuth) {
+    throw new Error('当前地址不是兼容的 OAuth 授权服务')
+  }
+
+  const status = payload.subscriptionOAuth
+  const providers = status === true
+    ? { openai: true, claude: true, gemini: true, grok: true }
+    : {
+        openai: Boolean(status.providers?.openai),
+        claude: Boolean(status.providers?.claude),
+        gemini: Boolean(status.providers?.gemini),
+        grok: Boolean(status.providers?.grok),
+      }
+
+  if (!Object.values(providers).some(Boolean)) {
+    throw new Error('OAuth 授权服务尚未启用任何平台')
+  }
+
+  return { providers }
+}
+
 export function startChatGPTDeviceLogin(base) {
   return request(base, '/api/oauth/openai/device/start', { method: 'POST', body: '{}' })
 }

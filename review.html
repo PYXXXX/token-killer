@@ -68,6 +68,7 @@
     button, select, input, textarea { color: inherit; }
 
     button { cursor: pointer; }
+    button:disabled { cursor: not-allowed; }
 
     button:focus-visible,
     input:focus-visible,
@@ -424,6 +425,20 @@
     .console-stats span { display: block; color: #aaa398; font-size: 10px; }
     .console-stats strong { display: block; margin-top: 7px; font: 700 13px/1 var(--mono); }
 
+    .console-alert {
+      margin-top: 14px;
+      padding: 12px 13px;
+      border: 1px solid color-mix(in srgb, var(--accent) 58%, var(--console-line));
+      border-radius: var(--radius);
+      background: color-mix(in srgb, var(--accent) 14%, var(--console));
+      color: #ddd7cd;
+      font-size: 10px;
+      font-weight: 650;
+      line-height: 1.6;
+    }
+
+    .console.blocked .console-top span:first-child { color: color-mix(in srgb, var(--accent) 76%, #faf6ef); }
+
     .button {
       min-height: 42px;
       display: inline-flex;
@@ -632,6 +647,7 @@
     .history-row > b { font: 700 12px/1 var(--mono); }
     .ranking-row > span { color: var(--ink-3); font: 650 10px/1 var(--mono); }
     .ranking-row.current { margin-inline: -9px; padding-inline: 9px; border-radius: var(--radius); background: var(--accent-soft); }
+    .ranking-row.current.pinned { margin-bottom: 6px; border-bottom-color: transparent; background: color-mix(in srgb, var(--accent-soft) 78%, var(--accent) 22%); box-shadow: inset 3px 0 0 var(--accent); }
     .ranking-stats { display: grid; grid-template-columns: repeat(3, minmax(56px, 1fr)); gap: 8px; }
     .ranking-stats > span { min-width: 0; display: grid; gap: 3px; text-align: right; }
     .ranking-stats small { margin: 0; font-size: 8px; }
@@ -640,11 +656,88 @@
     .board-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; margin: 15px 0 8px; padding: 3px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-2); }
     .board-tabs button { min-width: 0; min-height: 32px; overflow: hidden; border: 0; border-radius: 8px; background: transparent; color: var(--ink-2); font-size: 9px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
     .board-tabs button.active { background: var(--surface); color: var(--ink); box-shadow: 0 1px 4px rgb(38 32 25 / 0.08); }
+    .ranking-pagination { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+    .ranking-pagination button { min-height: 32px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink-2); font-size: 9px; font-weight: 700; }
+    .ranking-pagination button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-ink); }
+    .ranking-pagination button:disabled { color: var(--ink-3); opacity: 0.5; }
+    .ranking-pagination > span { color: var(--ink-3); font-size: 9px; text-align: center; }
+    .ranking-pagination > span b { color: var(--ink); font-family: var(--mono); }
+    .ranking-pagination > small { grid-column: 1 / -1; margin: 0; color: var(--ink-3); font-size: 8px; text-align: center; }
 
     .settings-stack { display: grid; gap: 18px; }
 
     .settings-section { padding: 24px; }
     .settings-title { margin-bottom: 22px; }
+
+    .provider-blocklist-title {
+      display: flex;
+      align-items: flex-start;
+      gap: 16px;
+    }
+
+    .provider-blocklist-title > div { min-width: 0; }
+
+    .blocklist-clear {
+      flex: 0 0 auto;
+      min-height: 34px;
+      margin-left: auto;
+      padding: 0 3px;
+      border: 0;
+      background: transparent;
+      color: var(--accent-ink);
+      font-size: 10px;
+      font-weight: 750;
+      white-space: nowrap;
+    }
+
+    .blocklist-clear:hover { color: var(--accent); }
+
+    .provider-blocklist { display: grid; gap: 8px; }
+
+    .provider-block-row {
+      min-width: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 18px;
+      align-items: center;
+      padding: 14px 15px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--bg);
+    }
+
+    .provider-block-row > div { min-width: 0; display: grid; gap: 5px; }
+    .provider-block-row strong { font-size: 11px; }
+    .provider-block-row code {
+      overflow: hidden;
+      color: var(--ink-2);
+      font: 600 10px/1.45 var(--mono);
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .provider-block-row small { color: var(--ink-3); font-size: 9px; line-height: 1.5; }
+    .provider-block-row button {
+      min-height: 36px;
+      padding: 0 12px;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: var(--surface);
+      color: var(--ink);
+      font-size: 10px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .provider-block-row button:hover { border-color: var(--accent); color: var(--accent-ink); }
+
+    .provider-blocklist-empty {
+      padding: 20px;
+      border: 1px dashed var(--line);
+      border-radius: var(--radius);
+      color: var(--ink-3);
+      font-size: 10px;
+      line-height: 1.5;
+      text-align: center;
+    }
 
     .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 12px; }
     .field { display: grid; align-content: start; gap: 8px; }
@@ -678,9 +771,19 @@
     .model-picker button:hover { border-color: var(--accent); color: var(--accent-ink); }
     .model-picker button:disabled { cursor: wait; opacity: 0.65; }
 
-    .subscription-actions { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+    .oauth-service-field { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+    .oauth-service-field button { min-width: 104px; min-height: 42px; padding: 0 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); color: var(--ink-2); font-size: 10px; font-weight: 700; }
+    .oauth-service-field button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-ink); }
+    .oauth-service-field button:disabled { color: var(--ink-3); background: var(--surface-2); opacity: 0.72; }
+    .oauth-service-status { min-height: 18px; color: var(--ink-3); font-size: 9px; font-weight: 700; line-height: 1.5; }
+    .oauth-service-status.checking { color: var(--ink-2); }
+    .oauth-service-status.ready { color: var(--success); }
+    .oauth-service-status.error { color: var(--accent-ink); }
+
+    .subscription-actions { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 16px; }
     .subscription-actions button { min-height: 43px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); color: var(--ink); font-size: 11px; font-weight: 700; }
-    .subscription-actions button:hover { border-color: var(--accent); color: var(--accent-ink); }
+    .subscription-actions button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-ink); }
+    .subscription-actions button:disabled { border-color: var(--line); background: var(--surface-2); color: var(--ink-3); opacity: 0.72; }
 
     .toggle {
       min-height: 42px;
@@ -770,6 +873,11 @@
       .target-grid, .form-grid, .prompt-grid, .metrics { grid-template-columns: 1fr; }
       .field.full { grid-column: auto; }
       .subscription-actions { grid-template-columns: 1fr 1fr; }
+      .oauth-service-field { grid-template-columns: 1fr; }
+      .provider-blocklist-title { flex-wrap: wrap; }
+      .provider-blocklist-title .blocklist-clear { width: 100%; min-height: 32px; margin-left: 0; text-align: left; }
+      .provider-block-row { grid-template-columns: 1fr; }
+      .provider-block-row button { width: 100%; }
       .history-row { grid-template-columns: 1fr auto; }
       .history-row > div:last-child { display: none; }
       .share-foot { display: grid; }
@@ -825,7 +933,7 @@
         <header class="page-header">
           <div>
             <span class="kicker">消耗控制台</span>
-            <h1 id="burn-title">把预算烧在明处。</h1>
+            <h1 id="burn-title">请随意消耗你的 Token。</h1>
             <p>设定目标，选择任务，然后开始消耗。</p>
           </div>
           <div class="provider-status"><strong>OpenAI Responses</strong><small>已配置密钥</small></div>
@@ -877,6 +985,7 @@
                 <div><span>成本</span><strong id="runCost">$0.0000</strong></div>
                 <div><span>核验</span><strong id="verifiedRounds">0/0</strong></div>
               </div>
+              <div class="console-alert" id="runAlert" role="status" hidden></div>
               <button class="button primary" id="startDemo" type="button">开始消耗</button>
             </section>
             <section class="guard"><strong>软上限保护</strong><p>按回执记账并逐轮收缩。供应商分词与计费发生在远端，无法保证最后 1 token 的绝对命中。</p></section>
@@ -994,18 +1103,19 @@
           </section>
 
           <section class="panel section">
-            <div class="section-heading"><div><h2>全网排行榜</h2><p class="leaderboard-source">数据来源 <strong id="leaderboardSource">rank.token-killer.workers.dev</strong></p></div></div>
+            <div class="section-heading"><div><h2>排行榜</h2><p class="leaderboard-source">数据来源 <strong id="leaderboardSource">rank.token-killer.workers.dev</strong></p></div></div>
             <div class="board-tabs" role="group" aria-label="排行榜地区">
               <button class="active" type="button" data-board-scope="global">全球</button>
               <button type="button" data-board-scope="country">中国</button>
               <button type="button" data-board-scope="province">浙江省</button>
               <button type="button" data-board-scope="city">杭州市</button>
             </div>
-            <div class="ranking-list" id="rankingList">
-              <div class="ranking-row" data-ranking-row><span>01</span><div><strong>燃烧者 #482917</strong><small>恒星 IV，43 次运行</small></div><div class="ranking-stats"><span><small>Token</small><b>18.7M</b></span><span><small>轮数</small><b>284</b></span><span><small>消费</small><b>$11.42</b></span></div></div>
-              <div class="ranking-row" data-ranking-row><span>02</span><div><strong>燃烧者 #831204</strong><small>恒星 V，31 次运行</small></div><div class="ranking-stats"><span><small>Token</small><b>12.3M</b></span><span><small>轮数</small><b>197</b></span><span><small>消费</small><b>$8.76</b></span></div></div>
-              <div class="ranking-row" data-ranking-row><span>03</span><div><strong>燃烧者 #731086</strong><small>耀斑 I，24 次运行</small></div><div class="ranking-stats"><span><small>Token</small><b>9.84M</b></span><span><small>轮数</small><b>151</b></span><span><small>消费</small><b>$5.19</b></span></div></div>
-              <div class="ranking-row current" data-ranking-row><span>04</span><div><strong>燃烧者 #145473</strong><small>耀斑 IV，29 次运行</small></div><div class="ranking-stats"><span><small>Token</small><b>2.18M</b></span><span><small>轮数</small><b>146</b></span><span><small>消费</small><b>$1.31</b></span></div></div>
+            <div class="ranking-list" id="rankingList"></div>
+            <div class="ranking-pagination" aria-label="排行榜翻页">
+              <button id="rankingPrev" type="button">上一页</button>
+              <span>第 <b id="rankingPage">1</b> / <span id="rankingPages">10</span> 页</span>
+              <button id="rankingNext" type="button">下一页</button>
+              <small>仅展示前 100 位</small>
             </div>
           </section>
         </div>
@@ -1050,13 +1160,30 @@
 
           <section class="panel settings-section">
             <div class="settings-title"><h2>消费版订阅账号</h2><p>支持 ChatGPT、Claude、Gemini 与 Grok 账号登录。</p></div>
+            <div class="field full">
+              <label for="oauthServiceUrl">OAuth 授权服务</label>
+              <div class="oauth-service-field">
+                <input id="oauthServiceUrl" type="url" placeholder="https://your-worker.workers.dev" spellcheck="false" />
+                <button id="checkOAuthService" type="button">检测服务</button>
+              </div>
+              <div class="oauth-service-status idle" id="oauthServiceStatus" aria-live="polite">尚未检测，授权入口暂不可用</div>
+            </div>
             <div class="subscription-actions">
-              <button type="button">连接 ChatGPT</button>
-              <button type="button">连接 Claude</button>
-              <button type="button">连接 Gemini</button>
-              <button type="button">连接 Grok</button>
+              <button type="button" data-oauth-provider="openai" disabled>连接 ChatGPT</button>
+              <button type="button" data-oauth-provider="claude" disabled>连接 Claude</button>
+              <button type="button" data-oauth-provider="gemini" disabled>连接 Gemini</button>
+              <button type="button" data-oauth-provider="grok" disabled>连接 Grok</button>
             </div>
             <div class="inline-status" id="accountStatus">尚未连接消费版账号</div>
+          </section>
+
+          <section class="panel settings-section" id="providerBlocklistSection">
+            <div class="settings-title provider-blocklist-title">
+              <div><h2>已屏蔽的 Provider</h2><p>明确拒绝 Token Killer 请求的服务会在此停用。</p></div>
+              <button class="blocklist-clear" id="clearProviderBlocklist" type="button">全部解除</button>
+            </div>
+            <div class="provider-blocklist" id="providerBlocklist"></div>
+            <div class="provider-blocklist-empty" id="providerBlocklistEmpty" hidden>暂无被停用的 Provider。</div>
           </section>
 
           <section class="panel settings-section">
@@ -1069,11 +1196,11 @@
           </section>
 
           <section class="panel settings-section">
-            <div class="settings-title"><h2>数据与全网榜</h2><p>设置排行榜参与方式和服务地址。</p></div>
+            <div class="settings-title"><h2>数据与排行榜</h2><p>设置排行榜参与方式和服务地址。</p></div>
             <div class="form-grid">
               <div class="field identity-field"><label for="participantId">排行榜编号</label><output class="participant-id" id="participantId">燃烧者 #145473</output><small>自动生成，无需注册或填写昵称。</small></div>
               <div class="field"><label for="leaderboardUrl">排行榜服务地址</label><input id="leaderboardUrl" type="url" value="https://rank.token-killer.workers.dev" placeholder="同域 /api" /></div>
-              <div class="field full"><label>公开汇总</label><label class="toggle"><input id="publishLeaderboard" type="checkbox" checked />将完整 usage 运行发布到全网榜</label><small>公开 token、费用、轮数、模型和时长。</small></div>
+              <div class="field full"><label>公开汇总</label><label class="toggle"><input id="publishLeaderboard" type="checkbox" checked />将完整 usage 运行发布到排行榜</label><small>公开 token、费用、轮数、模型和时长。</small></div>
             </div>
           </section>
         </div>
@@ -1091,6 +1218,8 @@
     const root = document.documentElement
     const views = [...document.querySelectorAll('.view')]
     const navButtons = [...document.querySelectorAll('[data-view]')]
+    const REQUEST_MARKER = '[token-killer]'
+    const PROVIDER_BLOCKED_MESSAGE = `该 Provider 已明确拒绝带有 ${REQUEST_MARKER} 标记的请求，已在本浏览器停用。可前往设置解除屏蔽。`
 
     function showView(name) {
       views.forEach((view) => view.classList.toggle('active', view.id === `view-${name}`))
@@ -1137,8 +1266,150 @@
       })
     })
 
+    const formatSelect = document.getElementById('formatSelect')
+    const endpointInput = document.getElementById('endpointInput')
+    const modelInput = document.getElementById('modelInput')
+    const modelStatus = document.getElementById('modelStatus')
+    const modelCatalog = document.getElementById('reviewModelCatalog')
+    const apiKeyInput = document.getElementById('apiKeyInput')
+    const streamToggle = document.getElementById('streamToggle')
+    const streamLabel = document.getElementById('streamLabel')
     const startDemo = document.getElementById('startDemo')
+    const runConsole = startDemo.closest('.console')
+    const runAlert = document.getElementById('runAlert')
+    const providerBlocklistElement = document.getElementById('providerBlocklist')
+    const providerBlocklistEmpty = document.getElementById('providerBlocklistEmpty')
+    const clearProviderBlocklistButton = document.getElementById('clearProviderBlocklist')
+    const providerLabels = {
+      openai: 'OpenAI 兼容接口',
+      anthropic: 'Anthropic 兼容接口',
+      gemini: 'Gemini 兼容接口',
+    }
+
+    function normalizeReviewProviderEndpoint(value) {
+      const source = String(value || '').trim()
+      try {
+        const url = new URL(source)
+        url.username = ''
+        url.password = ''
+        url.search = ''
+        url.hash = ''
+        const suffixes = [
+          /\/(?:v\d+(?:beta\d+)?)\/(?:chat\/completions|responses|completions|messages)$/i,
+          /\/(?:chat\/completions|responses|completions|messages)$/i,
+          /\/(?:v\d+(?:beta\d+)?)\/models\/[^/]+:(?:stream)?generateContent$/i,
+          /\/models\/[^/]+:(?:stream)?generateContent$/i,
+        ]
+        let path = url.pathname.replace(/\/+$/, '')
+        const suffix = suffixes.find((pattern) => pattern.test(path))
+        if (suffix) path = path.replace(suffix, '')
+        path = path.replace(/\/+$/, '')
+        return `${url.origin}${path && path !== '/' ? path : ''}`
+      } catch {
+        return source.split(/[?#]/, 1)[0].replace(/\/+$/, '') || 'invalid-endpoint'
+      }
+    }
+
+    function getReviewProviderIdentity() {
+      const apiFormat = formatSelect.value
+      const provider = apiFormat === 'anthropic' ? 'anthropic' : apiFormat === 'gemini' ? 'gemini' : 'openai'
+      const endpoint = normalizeReviewProviderEndpoint(endpointInput.value)
+      return {
+        key: `direct|${provider}|text-inference|${endpoint}`,
+        provider,
+        endpoint,
+      }
+    }
+
+    const initialProviderIdentity = getReviewProviderIdentity()
+    let reviewProviderBlocklist = [{
+      ...initialProviderIdentity,
+      reasonCode: 'sensitive_words_detected',
+      status: 500,
+      blockedAt: Date.now(),
+    }]
+
+    function resetProviderBlockedNotice() {
+      runConsole.classList.remove('blocked')
+      runAlert.hidden = true
+      runAlert.textContent = ''
+      if (startDemo.dataset.mode === 'settings') {
+        startDemo.dataset.mode = ''
+        startDemo.dataset.running = 'false'
+        startDemo.textContent = '开始消耗'
+        document.getElementById('runState').textContent = '等待启动'
+      }
+    }
+
+    function showProviderBlockedNotice() {
+      startDemo.dataset.running = 'false'
+      startDemo.dataset.mode = 'settings'
+      startDemo.textContent = '前往设置解除屏蔽'
+      document.getElementById('runState').textContent = '已在本浏览器停用'
+      runConsole.classList.add('blocked')
+      runAlert.textContent = PROVIDER_BLOCKED_MESSAGE
+      runAlert.hidden = false
+    }
+
+    function syncProviderBlockedNotice() {
+      const blocked = reviewProviderBlocklist.some((record) => record.key === getReviewProviderIdentity().key)
+      if (!blocked) resetProviderBlockedNotice()
+    }
+
+    function renderProviderBlocklist() {
+      providerBlocklistElement.replaceChildren(...reviewProviderBlocklist.map((record) => {
+        const row = document.createElement('div')
+        row.className = 'provider-block-row'
+
+        const details = document.createElement('div')
+        const name = document.createElement('strong')
+        name.textContent = providerLabels[record.provider] || record.provider
+        const endpoint = document.createElement('code')
+        endpoint.textContent = record.endpoint
+        const meta = document.createElement('small')
+        const status = record.status ? ` / HTTP ${record.status}` : ''
+        meta.textContent = `${record.reasonCode || '未提供错误码'}${status} / ${new Date(record.blockedAt).toLocaleString('zh-CN')}`
+        details.append(name, endpoint, meta)
+
+        const unblockButton = document.createElement('button')
+        unblockButton.type = 'button'
+        unblockButton.textContent = '解除屏蔽'
+        unblockButton.addEventListener('click', () => {
+          reviewProviderBlocklist = reviewProviderBlocklist.filter((item) => item.key !== record.key)
+          renderProviderBlocklist()
+          if (!reviewProviderBlocklist.some((item) => item.key === getReviewProviderIdentity().key)) resetProviderBlockedNotice()
+        })
+
+        row.append(details, unblockButton)
+        return row
+      }))
+      const empty = reviewProviderBlocklist.length === 0
+      providerBlocklistElement.hidden = empty
+      providerBlocklistEmpty.hidden = !empty
+      clearProviderBlocklistButton.hidden = empty
+    }
+
+    clearProviderBlocklistButton.addEventListener('click', () => {
+      if (!window.confirm('确定解除全部 Provider 屏蔽吗？')) return
+      reviewProviderBlocklist = []
+      renderProviderBlocklist()
+      resetProviderBlockedNotice()
+    })
+
+    renderProviderBlocklist()
+    endpointInput.addEventListener('input', syncProviderBlockedNotice)
+
     startDemo.addEventListener('click', () => {
+      if (startDemo.dataset.mode === 'settings') {
+        showView('settings')
+        document.getElementById('providerBlocklistSection').scrollIntoView({ block: 'start', behavior: 'smooth' })
+        return
+      }
+      const blocked = reviewProviderBlocklist.some((record) => record.key === getReviewProviderIdentity().key)
+      if (blocked) {
+        showProviderBlockedNotice()
+        return
+      }
       const running = startDemo.dataset.running === 'true'
       if (running) {
         startDemo.dataset.running = 'false'
@@ -1160,14 +1431,6 @@
       document.getElementById('verifiedRounds').textContent = '6/6'
     })
 
-    const formatSelect = document.getElementById('formatSelect')
-    const endpointInput = document.getElementById('endpointInput')
-    const modelInput = document.getElementById('modelInput')
-    const modelStatus = document.getElementById('modelStatus')
-    const modelCatalog = document.getElementById('reviewModelCatalog')
-    const apiKeyInput = document.getElementById('apiKeyInput')
-    const streamToggle = document.getElementById('streamToggle')
-    const streamLabel = document.getElementById('streamLabel')
     const formatPresets = {
       responses: ['gpt-4o-mini', 'https://api.openai.com/v1/responses'],
       chat: ['gpt-4o-mini', 'https://api.openai.com/v1/chat/completions'],
@@ -1265,6 +1528,7 @@
       streamToggle.disabled = legacy
       streamToggle.checked = !legacy
       streamLabel.textContent = legacy ? '完整响应（保留 usage）' : '启用流式响应'
+      syncProviderBlockedNotice()
     })
 
     const refreshModels = document.getElementById('refreshModels')
@@ -1335,7 +1599,85 @@
       event.currentTarget.textContent = visible ? '显示' : '隐藏'
     })
 
-    document.querySelectorAll('.subscription-actions button').forEach((button) => {
+    const oauthServiceUrl = document.getElementById('oauthServiceUrl')
+    const checkOAuthService = document.getElementById('checkOAuthService')
+    const oauthServiceStatus = document.getElementById('oauthServiceStatus')
+    const oauthButtons = [...document.querySelectorAll('[data-oauth-provider]')]
+
+    function setOAuthProviders(providers = {}) {
+      oauthButtons.forEach((button) => {
+        button.disabled = !providers[button.dataset.oauthProvider]
+      })
+    }
+
+    function setOAuthServiceStatus(state, message) {
+      oauthServiceStatus.className = `oauth-service-status ${state}`
+      oauthServiceStatus.textContent = message
+    }
+
+    oauthServiceUrl.addEventListener('input', () => {
+      setOAuthProviders()
+      setOAuthServiceStatus('idle', '地址已更改，请重新检测授权服务')
+      document.getElementById('accountStatus').textContent = '尚未连接消费版账号'
+    })
+
+    checkOAuthService.addEventListener('click', async () => {
+      const base = oauthServiceUrl.value.trim().replace(/\/$/, '')
+      if (!base && location.protocol === 'file:') {
+        setOAuthServiceStatus('error', '请先填写 Worker 地址')
+        return
+      }
+
+      const endpoint = base ? `${base}/api/health` : '/api/health'
+      const controller = new AbortController()
+      const timeout = window.setTimeout(() => controller.abort(), 10000)
+      checkOAuthService.disabled = true
+      checkOAuthService.textContent = '检测中'
+      setOAuthProviders()
+      setOAuthServiceStatus('checking', '正在检测 OAuth 授权服务')
+
+      try {
+        const response = await fetch(endpoint, { cache: 'no-store', signal: controller.signal })
+        let payload
+        try {
+          payload = await response.json()
+        } catch {
+          throw new Error('没有检测到兼容的 OAuth 授权服务')
+        }
+        if (!response.ok) throw new Error(typeof payload.error === 'string' ? payload.error : `授权服务返回 ${response.status}`)
+        if (payload.service !== 'token-killer-community' || !payload.subscriptionOAuth) {
+          throw new Error('当前地址不是兼容的 OAuth 授权服务')
+        }
+
+        const status = payload.subscriptionOAuth
+        const providers = status === true
+          ? { openai: true, claude: true, gemini: true, grok: true }
+          : {
+              openai: Boolean(status.providers?.openai),
+              claude: Boolean(status.providers?.claude),
+              gemini: Boolean(status.providers?.gemini),
+              grok: Boolean(status.providers?.grok),
+        }
+        if (!Object.values(providers).some(Boolean)) throw new Error('OAuth 授权服务尚未启用任何平台')
+        setOAuthProviders(providers)
+        const availableLabels = [
+          ['openai', 'ChatGPT'],
+          ['claude', 'Claude'],
+          ['gemini', 'Gemini'],
+          ['grok', 'Grok'],
+        ].filter(([provider]) => providers[provider]).map(([, label]) => label)
+        setOAuthServiceStatus('ready', `授权服务正常，可连接 ${availableLabels.join('、')}`)
+      } catch (error) {
+        setOAuthProviders()
+        setOAuthServiceStatus('error', error.name === 'AbortError' ? '连接超时，请检查服务地址' : `连接失败：${error.message}`)
+      } finally {
+        window.clearTimeout(timeout)
+        checkOAuthService.disabled = false
+        checkOAuthService.textContent = '检测服务'
+      }
+    })
+
+    oauthButtons.forEach((button) => {
       button.addEventListener('click', () => {
         document.getElementById('accountStatus').textContent = `${button.textContent.replace('连接 ', '')} 登录流程已准备`
       })
@@ -1476,54 +1818,136 @@
     })
     renderTier(currentTierIndex)
 
-    const rankingData = {
-      global: [
-        { name: '燃烧者 #482917', tier: '恒星 IV', runs: 43, tokens: '18.7M', rounds: '284', cost: '$11.42' },
-        { name: '燃烧者 #831204', tier: '恒星 V', runs: 31, tokens: '12.3M', rounds: '197', cost: '$8.76' },
-        { name: '燃烧者 #731086', tier: '耀斑 I', runs: 24, tokens: '9.84M', rounds: '151', cost: '$5.19' },
-        { name: '燃烧者 #145473', tier: '耀斑 IV', runs: 29, tokens: '2.18M', rounds: '146', cost: '$1.31' },
-      ],
-      country: [
-        { name: '燃烧者 #482917', tier: '恒星 IV', runs: 43, tokens: '18.7M', rounds: '284', cost: '$11.42' },
-        { name: '燃烧者 #731086', tier: '耀斑 I', runs: 24, tokens: '9.84M', rounds: '151', cost: '$5.19' },
-        { name: '燃烧者 #145473', tier: '耀斑 IV', runs: 29, tokens: '2.18M', rounds: '146', cost: '$1.31' },
-        { name: '燃烧者 #344201', tier: '耀斑 IV', runs: 18, tokens: '1.76M', rounds: '96', cost: '$0.94' },
-      ],
-      province: [
-        { name: '燃烧者 #731086', tier: '耀斑 I', runs: 24, tokens: '9.84M', rounds: '151', cost: '$5.19' },
-        { name: '燃烧者 #145473', tier: '耀斑 IV', runs: 29, tokens: '2.18M', rounds: '146', cost: '$1.31' },
-        { name: '燃烧者 #620714', tier: '熔炉 I', runs: 15, tokens: '1.44M', rounds: '82', cost: '$0.73' },
-        { name: '燃烧者 #211905', tier: '熔炉 II', runs: 12, tokens: '1.08M', rounds: '67', cost: '$0.52' },
-      ],
-      city: [
-        { name: '燃烧者 #145473', tier: '耀斑 IV', runs: 29, tokens: '2.18M', rounds: '146', cost: '$1.31' },
-        { name: '燃烧者 #620714', tier: '熔炉 I', runs: 15, tokens: '1.44M', rounds: '82', cost: '$0.73' },
-        { name: '燃烧者 #211905', tier: '熔炉 II', runs: 12, tokens: '1.08M', rounds: '67', cost: '$0.52' },
-        { name: '燃烧者 #905321', tier: '熔炉 III', runs: 8, tokens: '768K', rounds: '44', cost: '$0.31' },
-      ],
+    const rankingPageSize = 10
+    const currentRankingProfile = {
+      name: '燃烧者 #145473',
+      tier: '耀斑 IV',
+      runs: 29,
+      tokens: 2180000,
+      rounds: 146,
+      cost: 1.31,
+      current: true,
+    }
+    const currentRanks = { global: 4, country: 3, province: 2, city: 1 }
+
+    function rankingTier(tokens, rank) {
+      const level = ['I', 'II', 'III', 'IV', 'V'][(rank - 1) % 5]
+      if (tokens >= 10000000) return `恒星 ${level}`
+      if (tokens >= 2000000) return `耀斑 ${level}`
+      if (tokens >= 500000) return `熔炉 ${level}`
+      if (tokens >= 100000) return `燃芯 ${level}`
+      return '火种'
     }
 
-    function renderRanking(scope) {
-      const rows = document.querySelectorAll('[data-ranking-row]')
-      rankingData[scope].forEach((item, index) => {
-        const row = rows[index]
-        const values = row.querySelectorAll('.ranking-stats b')
-        row.children[0].textContent = String(index + 1).padStart(2, '0')
-        row.children[1].querySelector('strong').textContent = item.name
-        row.children[1].querySelector('small').textContent = `${item.tier}，${item.runs} 次运行`
-        values[0].textContent = item.tokens
-        values[1].textContent = item.rounds
-        values[2].textContent = item.cost
-        row.classList.toggle('current', item.name === '燃烧者 #145473')
+    function buildRanking(scope) {
+      const currentRank = currentRanks[scope]
+      const scopeSeed = ['global', 'country', 'province', 'city'].indexOf(scope) + 1
+      return Array.from({ length: 100 }, (_, index) => {
+        const rank = index + 1
+        if (rank === currentRank) return { ...currentRankingProfile, rank }
+        const tokens = rank < currentRank
+          ? currentRankingProfile.tokens + ((currentRank - rank) * 3200000)
+          : Math.max(6400, Math.round(currentRankingProfile.tokens * (0.94 ** (rank - currentRank))))
+        let number = 100000 + (((scopeSeed * 100003) + (rank * 7919)) % 900000)
+        if (number === 145473) number += 1
+        const rounds = Math.max(2, Math.round(tokens / 15000))
+        return {
+          rank,
+          name: `燃烧者 #${number}`,
+          tier: rankingTier(tokens, rank),
+          runs: Math.max(1, Math.round(rounds / 6)),
+          tokens,
+          rounds,
+          cost: tokens * 0.0000006,
+          current: false,
+        }
       })
+    }
+
+    const rankingData = {
+      global: buildRanking('global'),
+      country: buildRanking('country'),
+      province: buildRanking('province'),
+      city: buildRanking('city'),
+    }
+    const rankingList = document.getElementById('rankingList')
+    const rankingPageLabel = document.getElementById('rankingPage')
+    const rankingPagesLabel = document.getElementById('rankingPages')
+    const rankingPrev = document.getElementById('rankingPrev')
+    const rankingNext = document.getElementById('rankingNext')
+    let rankingScope = 'global'
+    let rankingPage = 1
+
+    function createRankingRow(item, pinned = false) {
+      const row = document.createElement('div')
+      row.className = `ranking-row${item.current ? ' current' : ''}${pinned ? ' pinned' : ''}`
+
+      const rank = document.createElement('span')
+      rank.textContent = String(item.rank).padStart(2, '0')
+
+      const person = document.createElement('div')
+      const name = document.createElement('strong')
+      name.textContent = item.name
+      const detail = document.createElement('small')
+      detail.textContent = `${pinned ? '我的排名 · ' : ''}${item.tier}，${item.runs} 次运行`
+      person.append(name, detail)
+
+      const stats = document.createElement('div')
+      stats.className = 'ranking-stats'
+      ;[
+        ['Token', compactTokens(item.tokens)],
+        ['轮数', String(item.rounds)],
+        ['消费', `$${item.cost.toFixed(2)}`],
+      ].forEach(([label, value]) => {
+        const stat = document.createElement('span')
+        const statLabel = document.createElement('small')
+        statLabel.textContent = label
+        const statValue = document.createElement('b')
+        statValue.textContent = value
+        stat.append(statLabel, statValue)
+        stats.append(stat)
+      })
+
+      row.append(rank, person, stats)
+      return row
+    }
+
+    function renderRanking() {
+      const entries = rankingData[rankingScope].slice(0, 100)
+      const pageCount = Math.max(1, Math.ceil(entries.length / rankingPageSize))
+      rankingPage = Math.min(pageCount, Math.max(1, rankingPage))
+      const start = (rankingPage - 1) * rankingPageSize
+      const pageEntries = entries.slice(start, start + rankingPageSize)
+      const currentEntry = entries.find((entry) => entry.current)
+      const currentOnPage = pageEntries.some((entry) => entry.current)
+      const visibleEntries = currentEntry && !currentOnPage
+        ? [{ item: currentEntry, pinned: true }, ...pageEntries.map((item) => ({ item, pinned: false }))]
+        : pageEntries.map((item) => ({ item, pinned: false }))
+
+      rankingList.replaceChildren(...visibleEntries.map(({ item, pinned }) => createRankingRow(item, pinned)))
+      rankingPageLabel.textContent = String(rankingPage)
+      rankingPagesLabel.textContent = String(pageCount)
+      rankingPrev.disabled = rankingPage === 1
+      rankingNext.disabled = rankingPage === pageCount
     }
 
     document.querySelectorAll('[data-board-scope]').forEach((button) => {
       button.addEventListener('click', () => {
         document.querySelectorAll('[data-board-scope]').forEach((item) => item.classList.toggle('active', item === button))
-        renderRanking(button.dataset.boardScope)
+        rankingScope = button.dataset.boardScope
+        rankingPage = 1
+        renderRanking()
       })
     })
+    rankingPrev.addEventListener('click', () => {
+      rankingPage -= 1
+      renderRanking()
+    })
+    rankingNext.addEventListener('click', () => {
+      rankingPage += 1
+      renderRanking()
+    })
+    renderRanking()
 
     const deploymentUrl = location.protocol === 'file:'
       ? 'https://token-killer.example'

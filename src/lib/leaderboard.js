@@ -1,6 +1,12 @@
 import { getInstallationId } from './storage.js'
 
 const REQUEST_TIMEOUT = 5000
+const PARTICIPANT_LABEL_PATTERN = /^燃烧者 #[1-9]\d{5}$/
+
+export function normalizeLeaderboardParticipantLabel(value) {
+  const label = String(value || '').trim()
+  return PARTICIPANT_LABEL_PATTERN.test(label) ? label : ''
+}
 
 function apiUrl(base, path) {
   const value = String(base || '').trim()
@@ -37,9 +43,17 @@ async function request(base, path, options = {}) {
   }
 }
 
-export async function getLeaderboard(base, period = 'day', scope = 'global') {
+export async function getLeaderboard(base, period = 'day', scope = 'global', page = 1) {
   const safeScope = ['country', 'province', 'city'].includes(scope) ? scope : 'global'
-  return request(base, `/api/leaderboard?period=${period === 'all' ? 'all' : 'day'}&scope=${safeScope}&limit=25`)
+  return request(base, '/api/leaderboard', {
+    method: 'POST',
+    body: JSON.stringify({
+      installationId: getInstallationId(),
+      period: period === 'all' ? 'all' : 'day',
+      scope: safeScope,
+      page: Math.min(10, Math.max(1, Number.parseInt(page, 10) || 1)),
+    }),
+  })
 }
 
 export async function getLeaderboardProfile(base) {

@@ -1,3 +1,5 @@
+import { appendRequestMarker, classifyProviderError } from '../src/lib/providerGuard.js'
+
 const OPENAI_AUTH_BASE_URL = 'https://auth.openai.com'
 const OPENAI_CODEX_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann'
 const OPENAI_DEVICE_CALLBACK_URL = `${OPENAI_AUTH_BASE_URL}/deviceauth/callback`
@@ -21,8 +23,16 @@ const GROK_RESPONSES_URL = 'https://cli-chat-proxy.grok.com/v1/responses'
 const MAX_ERROR_BODY = 8192
 const MAX_PROMPT_LENGTH = 200_000
 
-export function subscriptionConfigured() {
-  return true
+export function subscriptionStatus(env) {
+  return {
+    ready: true,
+    providers: {
+      openai: true,
+      claude: true,
+      gemini: Boolean(env?.GEMINI_OAUTH_CLIENT_ID && env?.GEMINI_OAUTH_CLIENT_SECRET),
+      grok: true,
+    },
+  }
 }
 
 export async function handleSubscriptionApi(request, env, url, cors) {
@@ -376,7 +386,7 @@ async function proxyOpenAIResponses(request, cors) {
   const body = await readJson(request)
   const credential = readProxyCredential(body, true)
   const model = validModel(body.model)
-  const prompt = requiredText(body.prompt, 'prompt', 1, MAX_PROMPT_LENGTH)
+  const prompt = inferencePrompt(body.prompt)
   const systemPrompt = optionalText(body.systemPrompt, 100_000)
   const maxOutput = integer(body.maxOutput, 'maxOutput', 1, 100_000)
   const reasoningEffort = ['minimal', 'low', 'medium', 'high', 'xhigh'].includes(body.reasoningEffort) ? body.reasoningEffort : 'high'
@@ -411,7 +421,7 @@ async function proxyOpenAIResponses(request, cors) {
 async function proxyClaudeMessages(request, cors) {
   const body = await readJson(request)
   const credential = readProxyCredential(body)
-  const prompt = requiredText(body.prompt, 'prompt', 1, MAX_PROMPT_LENGTH)
+  const prompt = inferencePrompt(body.prompt)
   const maxOutput = integer(body.maxOutput, 'maxOutput', 1, 100_000)
   const accountUuid = optionalText(credential.accountUuid, 256)
   const sessionId = optionalText(credential.sessionId, 128) || crypto.randomUUID()
@@ -457,7 +467,7 @@ async function proxyGeminiGenerate(request, cors) {
   const credential = readProxyCredential(body)
   const maxOutput = integer(body.maxOutput, 'maxOutput', 1, 65_536)
   const nativeRequest = {
-    contents: [{ role: 'user', parts: [{ text: requiredText(body.prompt, 'prompt', 1, MAX_PROMPT_LENGTH) }] }],
+    contents: [{ role: 'user', parts: [{ text: inferencePrompt(body.prompt) }] }],
     generationConfig: { maxOutputTokens: maxOutput },
   }
   if (body.systemPrompt) nativeRequest.systemInstruction = { parts: [{ text: optionalText(body.systemPrompt, 100_000) }] }
@@ -480,7 +490,7 @@ async function proxyGrokResponses(request, cors) {
     stream: true,
     store: false,
     instructions: optionalText(body.systemPrompt, 100_000) || undefined,
-    input: [{ role: 'user', content: [{ type: 'input_text', text: requiredText(body.prompt, 'prompt', 1, MAX_PROMPT_LENGTH) }] }],
+    input: [{ role: 'user', content: [{ type: 'input_text', text: inferencePrompt(body.prompt) }] }],
     max_output_tokens: maxOutput,
   }
   return proxyStream(
@@ -503,7 +513,22 @@ async function proxyGrokResponses(request, cors) {
 async function proxyStream(url, headers, body, signal, cors, operation) {
   const upstream = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body), signal })
   if (!upstream.ok) {
-    const detail = sanitizeErrorText((await upstream.text()).slice(0, MAX_ERROR_BODY))
+    const errorText = (await upstream.text()).slice(0, MAX_ERROR_BODY)
+    let payload
+    try {
+      payload = JSON.parse(errorText)
+    } catch {
+      payload = null
+    }
+    const classified = classifyProviderError({
+      payload,
+      status: upstream.status,
+      fallback: `${operation} returned ${upstream.status}.`,
+    })
+    if (classified.providerBlock) throw classified
+    const detail = sanitizeErrorText(
+      payload?.error?.message || payload?.message || payload?.error || errorText,
+    )
     throw httpError(upstream.status, detail || `${operation} returned ${upstream.status}.`)
   }
   const responseHeaders = new Headers(cors)
@@ -626,6 +651,12 @@ function validModel(value) {
   const model = requiredText(value, 'model', 1, 160)
   if (!/^[A-Za-z0-9._:/-]+$/.test(model)) throw httpError(400, 'model is invalid.')
   return model
+}
+
+function inferencePrompt(value) {
+  const prompt = appendRequestMarker(value)
+  if (prompt.length > MAX_PROMPT_LENGTH) throw httpError(400, 'prompt is invalid.')
+  return prompt
 }
 
 function requiredText(value, name, min, max) {

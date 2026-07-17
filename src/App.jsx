@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import {
   ArrowClockwise,
   CaretLeft,
@@ -30,6 +30,7 @@ import {
 } from '@phosphor-icons/react'
 import { callProvider, guardedPromptEstimate, loadProviderModels } from './lib/api.js'
 import {
+  checkSubscriptionService,
   deleteSubscriptionAccount,
   finishClaudeLogin,
   finishGeminiLogin,
@@ -52,11 +53,32 @@ import {
   SUBSCRIPTION_PROVIDER_IDS,
 } from './lib/catalog.js'
 import { formatDuration, formatMoney, formatTokens, percent, todayKey } from './lib/format.js'
-import { createLeaderboardSession, getLeaderboard, getLeaderboardProfile, submitLeaderboardRun } from './lib/leaderboard.js'
+import {
+  createLeaderboardSession,
+  getLeaderboard,
+  getLeaderboardProfile,
+  normalizeLeaderboardParticipantLabel,
+  submitLeaderboardRun,
+} from './lib/leaderboard.js'
 import { RANK_TIERS, rankForTokens } from './lib/ranks.js'
-import { clearLocalData, exportLocalData, getParticipantLabel, hasOnboarded, markOnboarded, readRuns, readSettings, writeRuns, writeSettings } from './lib/storage.js'
+import {
+  clearLocalData,
+  clearProviderBlocklist,
+  exportLocalData,
+  getParticipantLabel,
+  hasOnboarded,
+  isProviderBlocked,
+  markOnboarded,
+  readProviderBlocklist,
+  readRuns,
+  readSettings,
+  unblockProvider,
+  writeRuns,
+  writeSettings,
+} from './lib/storage.js'
 import { exportShareCard } from './lib/share.js'
 import { clearLocalVault, deleteEncryptedSecret, getEncryptedSecret, saveEncryptedSecret } from './lib/localVault.js'
+import { providerBlockedMessage } from './lib/providerGuard.js'
 
 const isSubscriptionProvider = (provider) => SUBSCRIPTION_PROVIDER_IDS.includes(provider)
 const accountProviderForSettings = (provider) => ({
@@ -66,6 +88,7 @@ const accountProviderForSettings = (provider) => ({
   grok_subscription: 'grok',
 }[provider] || '')
 const apiKeySecretId = (provider) => `api-key:${provider}`
+const EMPTY_SUBSCRIPTION_PROVIDERS = { openai: false, claude: false, gemini: false, grok: false }
 
 function leaderboardSourceLabel(value) {
   const source = String(value || '').trim()
@@ -81,8 +104,8 @@ function leaderboardSourceLabel(value) {
 }
 
 function participantLabelFromEntry(value, rank = 0) {
-  const label = String(value || '')
-  if (/^燃烧者 #[1-9]\d{5}$/.test(label)) return label
+  const label = normalizeLeaderboardParticipantLabel(value)
+  if (label) return label
   return `燃烧者 #${String(100000 + (Math.max(0, Number(rank) || 0) % 900000)).padStart(6, '0')}`
 }
 
@@ -329,7 +352,7 @@ function BurnPanel({ settings, updateSettings, catalogState, session, onStart, o
       <header className="page-header">
         <div>
           <span className="page-kicker">消耗控制台</span>
-          <h1>把预算烧在明处。</h1>
+          <h1>请随意消耗你的 Token。</h1>
           <p>设定目标，选择任务，然后开始消耗。</p>
         </div>
         <div className="provider-chip">
@@ -520,12 +543,23 @@ function BurnPanel({ settings, updateSettings, catalogState, session, onStart, o
   )
 }
 
-function StatsPanel({ runs, settings, leaderboardVersion, participantLabel }) {
+function StatsPanel({ runs, settings, leaderboardVersion, participantLabel, onParticipantLabel }) {
   const [boardPeriod, setBoardPeriod] = useState('day')
   const [boardScope, setBoardScope] = useState('global')
+  const [boardPage, setBoardPage] = useState(1)
   const [boardRefresh, setBoardRefresh] = useState(0)
   const [viewedTierId, setViewedTierId] = useState('')
-  const [globalBoard, setGlobalBoard] = useState({ status: 'loading', entries: [], context: null, scope: 'global', error: '' })
+  const [globalBoard, setGlobalBoard] = useState({
+    status: 'loading',
+    entries: [],
+    currentEntry: null,
+    context: null,
+    scope: 'global',
+    page: 1,
+    pageCount: 1,
+    visibleLimit: 100,
+    error: '',
+  })
   const [rankProfile, setRankProfile] = useState({ status: 'loading', data: null, error: '' })
   const today = todayKey()
   const todayRuns = runs.filter((run) => run.date === today)
@@ -578,32 +612,56 @@ function StatsPanel({ runs, settings, leaderboardVersion, participantLabel }) {
   useEffect(() => {
     let active = true
     setGlobalBoard((current) => ({ ...current, status: 'loading', error: '' }))
-    getLeaderboard(settings.leaderboardApiUrl, boardPeriod, boardScope)
+    getLeaderboard(settings.leaderboardApiUrl, boardPeriod, boardScope, boardPage)
       .then((payload) => {
         if (active) {
+          const pageCount = Math.max(1, Number(payload.pageCount) || 1)
+          if (boardPage > pageCount) {
+            setBoardPage(pageCount)
+            return
+          }
           setGlobalBoard({
             status: 'ready',
             entries: payload.entries || [],
+            currentEntry: payload.currentEntry || null,
             context: payload.context || null,
             scope: payload.scope || 'global',
+            page: Number(payload.page) || boardPage,
+            pageCount,
+            visibleLimit: Number(payload.visibleLimit) || 100,
             error: '',
           })
         }
       })
       .catch((error) => {
-        if (active) setGlobalBoard({ status: 'error', entries: [], context: null, scope: 'global', error: error.message })
+        if (active) {
+          setGlobalBoard({
+            status: 'error',
+            entries: [],
+            currentEntry: null,
+            context: null,
+            scope: 'global',
+            page: 1,
+            pageCount: 1,
+            visibleLimit: 100,
+            error: error.message,
+          })
+        }
       })
     return () => {
       active = false
     }
-  }, [settings.leaderboardApiUrl, boardPeriod, boardScope, boardRefresh, leaderboardVersion])
+  }, [settings.leaderboardApiUrl, boardPeriod, boardScope, boardPage, boardRefresh, leaderboardVersion])
 
   useEffect(() => {
     let active = true
     setRankProfile((current) => ({ ...current, status: 'loading', error: '' }))
     getLeaderboardProfile(settings.leaderboardApiUrl)
       .then((data) => {
-        if (active) setRankProfile({ status: 'ready', data, error: '' })
+        if (active) {
+          setRankProfile({ status: 'ready', data, error: '' })
+          onParticipantLabel(data?.participantLabel)
+        }
       })
       .catch((error) => {
         if (active) setRankProfile({ status: 'error', data: null, error: error.message })
@@ -611,7 +669,7 @@ function StatsPanel({ runs, settings, leaderboardVersion, participantLabel }) {
     return () => {
       active = false
     }
-  }, [settings.leaderboardApiUrl, boardRefresh, leaderboardVersion])
+  }, [settings.leaderboardApiUrl, boardRefresh, leaderboardVersion, onParticipantLabel])
 
   const profileData = rankProfile.status === 'ready' ? rankProfile.data : null
   const currentTier = profileData?.tier || rankForTokens(totalTokens)
@@ -634,6 +692,10 @@ function StatsPanel({ runs, settings, leaderboardVersion, participantLabel }) {
   const rankDirectory = profileData?.context?.directory || globalBoard.context?.directory || []
   const deploymentUrl = new URL('.', window.location.href).href.replace(/\/$/, '')
   const rankingPhrase = globalRank ? `我位列全球第 ${globalRank} 名` : '我正在冲击全球排行榜'
+  const currentEntryOnPage = globalBoard.entries.some((entry) => entry.isCurrent)
+  const displayedBoardEntries = globalBoard.currentEntry && !currentEntryOnPage
+    ? [{ ...globalBoard.currentEntry, pinned: true }, ...globalBoard.entries]
+    : globalBoard.entries
   const shareText = `我今天用 Token Killer 消耗了 ${formatTokens(todayTokens)} 个无意义 Token，累计 ${formatTokens(totalTokens)}。${rankingPhrase}，你也快来【${deploymentUrl}】浪费 Token 吧。`
   const shareToX = () => {
     window.open(`https://x.com/intent/post?text=${encodeURIComponent(shareText)}`, '_blank', 'noopener,noreferrer')
@@ -911,7 +973,7 @@ function StatsPanel({ runs, settings, leaderboardVersion, participantLabel }) {
         <section className="leaderboard-section section-block">
           <div className="section-heading">
             <div>
-              <h2>{globalBoard.status === 'error' ? '个人排行' : '全网排行榜'}</h2>
+              <h2>{globalBoard.status === 'error' ? '个人排行' : '排行榜'}</h2>
               <p className="leaderboard-source">数据来源 <strong>{boardSource}</strong></p>
             </div>
             <button className="icon-button" type="button" aria-label="刷新排行榜" onClick={() => setBoardRefresh((value) => value + 1)}>
@@ -926,7 +988,10 @@ function StatsPanel({ runs, settings, leaderboardVersion, participantLabel }) {
                     label="排行榜地区"
                     value={boardScope}
                     options={scopeOptions.map((scope) => ({ value: scope.id, label: scope.label }))}
-                    onChange={setBoardScope}
+                    onChange={(value) => {
+                      setBoardScope(value)
+                      setBoardPage(1)
+                    }}
                   />
                 </div>
               ) : null}
@@ -934,24 +999,30 @@ function StatsPanel({ runs, settings, leaderboardVersion, participantLabel }) {
                 label="排行榜周期"
                 value={boardPeriod}
                 options={[{ value: 'day', label: '今日' }, { value: 'all', label: '总榜' }]}
-                onChange={setBoardPeriod}
+                onChange={(value) => {
+                  setBoardPeriod(value)
+                  setBoardPage(1)
+                }}
               />
             </div>
           ) : null}
           {globalBoard.status === 'loading' ? (
             <div className="empty-state small">
               <ArrowClockwise className="spin" size={24} />
-              <strong>正在同步全网榜</strong>
+              <strong>正在同步排行榜</strong>
             </div>
           ) : null}
-          {globalBoard.status === 'ready' && globalBoard.entries.length ? (
+          {globalBoard.status === 'ready' && displayedBoardEntries.length ? (
             <ol className="leaderboard">
-              {globalBoard.entries.map((entry) => (
-                <li className={entry.participantLabel === participantLabel ? 'is-current' : ''} key={`${boardPeriod}-${entry.rank}-${entry.participantLabel || ''}`}>
+              {displayedBoardEntries.map((entry) => (
+                <li
+                  className={`${entry.isCurrent ? 'is-current' : ''}${entry.pinned ? ' is-pinned' : ''}`}
+                  key={`${boardPeriod}-${boardScope}-${entry.pinned ? 'pinned' : 'ranked'}-${entry.rank}-${entry.participantLabel || ''}`}
+                >
                   <span>{String(entry.rank).padStart(2, '0')}</span>
                   <div className="leaderboard-person">
                     <strong>{participantLabelFromEntry(entry.participantLabel, entry.rank)}</strong>
-                    <small>{entry.tier?.fullName || rankForTokens(entry.tokens).fullName}，{entry.runs} 次运行</small>
+                    <small>{entry.pinned ? '我的排名 · ' : ''}{entry.tier?.fullName || rankForTokens(entry.tokens).fullName}，{entry.runs} 次运行</small>
                   </div>
                   <div className="leaderboard-entry-stats">
                     <span><small>Token</small><b>{formatTokens(entry.tokens)}</b></span>
@@ -961,6 +1032,20 @@ function StatsPanel({ runs, settings, leaderboardVersion, participantLabel }) {
                 </li>
               ))}
             </ol>
+          ) : null}
+          {globalBoard.status === 'ready' && globalBoard.pageCount > 1 ? (
+            <div className="leaderboard-pagination" aria-label="排行榜翻页">
+              <button type="button" disabled={boardPage <= 1} onClick={() => setBoardPage((page) => Math.max(1, page - 1))}>
+                <CaretLeft size={14} />
+                上一页
+              </button>
+              <span>第 <strong>{globalBoard.page}</strong> / {globalBoard.pageCount} 页</span>
+              <button type="button" disabled={boardPage >= globalBoard.pageCount} onClick={() => setBoardPage((page) => Math.min(globalBoard.pageCount, page + 1))}>
+                下一页
+                <CaretRight size={14} />
+              </button>
+              <small>仅展示前 {globalBoard.visibleLimit} 位</small>
+            </div>
           ) : null}
           {globalBoard.status === 'ready' && !globalBoard.entries.length ? (
             <div className="empty-state small">
@@ -990,8 +1075,8 @@ function StatsPanel({ runs, settings, leaderboardVersion, participantLabel }) {
             <Info size={17} />
             <span>
               {globalBoard.status === 'error'
-                ? `${globalBoard.error || '全网榜不可用'}。可在配置中填写排行榜服务地址。`
-                : '全网榜只收录每轮都包含 usage 的完整运行。'}
+                ? `${globalBoard.error || '排行榜不可用'}。可在配置中填写排行榜服务地址。`
+                : '排行榜最多展示前 100 位，只收录每轮都包含 usage 的完整运行。'}
             </span>
           </div>
         </section>
@@ -1001,9 +1086,16 @@ function StatsPanel({ runs, settings, leaderboardVersion, participantLabel }) {
 }
 
 function SubscriptionAccountManager({ settings, updateSettings, accountsState, reloadAccounts, compact = false }) {
+  const serviceStatusId = useId()
   const [login, setLogin] = useState({ status: 'idle', provider: '', error: '', callbackValue: '' })
+  const [serviceState, setServiceState] = useState({ status: 'idle', providers: EMPTY_SUBSCRIPTION_PROVIDERS, error: '' })
   const [geminiProjectId, setGeminiProjectId] = useState('')
   const [deletingId, setDeletingId] = useState('')
+
+  useEffect(() => {
+    setServiceState({ status: 'idle', providers: EMPTY_SUBSCRIPTION_PROVIDERS, error: '' })
+    setLogin({ status: 'idle', provider: '', error: '', callbackValue: '' })
+  }, [settings.subscriptionApiUrl])
 
   useEffect(() => {
     if (login.status !== 'waiting_device' || login.provider !== 'openai') return undefined
@@ -1033,7 +1125,19 @@ function SubscriptionAccountManager({ settings, updateSettings, accountsState, r
     }
   }, [login, settings.subscriptionApiUrl, updateSettings, reloadAccounts])
 
+  const checkService = async () => {
+    setServiceState({ status: 'checking', providers: EMPTY_SUBSCRIPTION_PROVIDERS, error: '' })
+    try {
+      const result = await checkSubscriptionService(settings.subscriptionApiUrl)
+      setServiceState({ status: 'ready', providers: result.providers, error: '' })
+      setLogin({ status: 'idle', provider: '', error: '', callbackValue: '' })
+    } catch (error) {
+      setServiceState({ status: 'error', providers: EMPTY_SUBSCRIPTION_PROVIDERS, error: error.message })
+    }
+  }
+
   const startLogin = async (provider) => {
+    if (serviceState.status !== 'ready' || !serviceState.providers[provider]) return
     setLogin({ status: 'starting', provider, error: '', callbackValue: '' })
     try {
       if (provider === 'openai') {
@@ -1086,11 +1190,36 @@ function SubscriptionAccountManager({ settings, updateSettings, accountsState, r
   }
 
   const accounts = accountsState.accounts || []
+  const loginBusy = ['starting', 'waiting_device', 'waiting_callback', 'exchanging'].includes(login.status)
+  const unavailableTitle = serviceState.status === 'ready' ? '当前授权服务未启用此平台' : '请先检测 OAuth 授权服务'
+  const availableProviderLabels = [
+    ['openai', 'ChatGPT'],
+    ['claude', 'Claude'],
+    ['gemini', 'Gemini'],
+    ['grok', 'Grok'],
+  ].filter(([provider]) => serviceState.providers[provider]).map(([, label]) => label)
+  const serviceMessage = serviceState.status === 'checking'
+    ? '正在检测 OAuth 授权服务'
+    : serviceState.status === 'ready'
+      ? `授权服务正常，可连接 ${availableProviderLabels.join('、')}`
+      : serviceState.status === 'error'
+        ? `连接失败：${serviceState.error}`
+        : '尚未检测，授权入口暂不可用'
   return (
     <div className={`account-manager ${compact ? 'compact' : ''}`}>
       <div className="form-grid account-worker-field">
-        <Field label="订阅服务地址" hint="同域部署可留空；分开部署时填写服务 URL。" className="span-2">
-          <input type="url" value={settings.subscriptionApiUrl} spellCheck="false" onChange={(event) => updateSettings({ subscriptionApiUrl: event.target.value })} placeholder="同域 /api" />
+        <Field label="OAuth 授权服务" hint="同域部署可留空；分开部署时填写 Worker 地址。" className="span-2">
+          <div className="oauth-service-field">
+            <input type="url" value={settings.subscriptionApiUrl} spellCheck="false" onChange={(event) => updateSettings({ subscriptionApiUrl: event.target.value })} placeholder="同域 /api" />
+            <button className="secondary-button oauth-service-check" type="button" onClick={checkService} disabled={serviceState.status === 'checking'}>
+              <ArrowClockwise className={serviceState.status === 'checking' ? 'spin' : ''} size={16} />
+              {serviceState.status === 'checking' ? '检测中' : '检测服务'}
+            </button>
+          </div>
+          <div className={`oauth-service-status ${serviceState.status}`} id={serviceStatusId} aria-live="polite">
+            {serviceState.status === 'ready' ? <Check size={15} weight="bold" /> : <Info size={15} />}
+            <span>{serviceMessage}</span>
+          </div>
         </Field>
       </div>
 
@@ -1100,11 +1229,11 @@ function SubscriptionAccountManager({ settings, updateSettings, accountsState, r
           <strong>连接你自己的消费版订阅</strong>
           <p>选择平台完成登录，连接后可直接使用订阅模型。</p>
         </div>
-        <div className="oauth-provider-actions">
-          <button className="secondary-button" type="button" disabled={login.status === 'starting' || login.status === 'waiting_device'} onClick={() => startLogin('openai')}>ChatGPT</button>
-          <button className="secondary-button" type="button" disabled={login.status === 'starting'} onClick={() => startLogin('claude')}>Claude</button>
-          <button className="secondary-button" type="button" disabled={login.status === 'starting'} onClick={() => startLogin('gemini')}>Gemini</button>
-          <button className="secondary-button" type="button" disabled={login.status === 'starting'} onClick={() => startLogin('grok')}>Grok</button>
+        <div className="oauth-provider-actions" aria-describedby={serviceStatusId}>
+          <button className="secondary-button" type="button" title={!serviceState.providers.openai ? unavailableTitle : ''} disabled={loginBusy || !serviceState.providers.openai} onClick={() => startLogin('openai')}>ChatGPT</button>
+          <button className="secondary-button" type="button" title={!serviceState.providers.claude ? unavailableTitle : ''} disabled={loginBusy || !serviceState.providers.claude} onClick={() => startLogin('claude')}>Claude</button>
+          <button className="secondary-button" type="button" title={!serviceState.providers.gemini ? unavailableTitle : ''} disabled={loginBusy || !serviceState.providers.gemini} onClick={() => startLogin('gemini')}>Gemini</button>
+          <button className="secondary-button" type="button" title={!serviceState.providers.grok ? unavailableTitle : ''} disabled={loginBusy || !serviceState.providers.grok} onClick={() => startLogin('grok')}>Grok</button>
         </div>
       </div>
 
@@ -1199,6 +1328,10 @@ function SettingsPanel({
   accountsState,
   reloadAccounts,
   participantLabel,
+  participantLabelSource,
+  providerBlocklist,
+  onUnblockProvider,
+  onClearProviderBlocklist,
 }) {
   return (
     <div className="panel-page settings-page">
@@ -1247,6 +1380,44 @@ function SettingsPanel({
           </div>
         </div>
         <SubscriptionAccountManager settings={settings} updateSettings={updateSettings} accountsState={accountsState} reloadAccounts={reloadAccounts} />
+      </section>
+
+      <section className="settings-section section-block">
+        <div className="settings-section-title provider-blocklist-title">
+          <ShieldCheck size={22} />
+          <div>
+            <h2>已屏蔽的 Provider</h2>
+            <p>明确拒绝 Token Killer 请求的服务会在此停用。</p>
+          </div>
+          {providerBlocklist.length ? (
+            <button className="text-button" type="button" onClick={onClearProviderBlocklist}>
+              全部解除
+            </button>
+          ) : null}
+        </div>
+        {providerBlocklist.length ? (
+          <div className="provider-blocklist">
+            {providerBlocklist.map((record) => (
+              <div className="provider-block-row" key={record.key}>
+                <div>
+                  <strong>{PROVIDERS[record.provider]?.label || record.provider}</strong>
+                  <code>{record.endpoint}</code>
+                  <small>
+                    {record.reasonCode || '未提供错误码'}
+                    {record.status ? ` · HTTP ${record.status}` : ''}
+                    {' · '}
+                    {new Date(record.blockedAt).toLocaleString('zh-CN')}
+                  </small>
+                </div>
+                <button className="secondary-button" type="button" onClick={() => onUnblockProvider(record.key)}>
+                  解除屏蔽
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="provider-blocklist-empty">暂无被停用的 Provider。</div>
+        )}
       </section>
 
       <section className="settings-section section-block">
@@ -1338,12 +1509,17 @@ function SettingsPanel({
         <div className="settings-section-title">
           <Database size={22} />
           <div>
-            <h2>数据与全网榜</h2>
+            <h2>数据与排行榜</h2>
             <p>设置排行榜参与方式和服务地址。</p>
           </div>
         </div>
         <div className="form-grid data-grid">
-          <Field label="排行榜编号" hint="自动生成，无需注册或填写昵称。">
+          <Field
+            label="排行榜编号"
+            hint={participantLabelSource === 'leaderboard'
+              ? '由当前排行榜签发，不支持自行命名。'
+              : '尚未连接排行榜，由本机生成临时编号。'}
+          >
             <output className="participant-id" aria-label="排行榜编号">{participantLabel}</output>
           </Field>
           <Field label="排行榜服务地址" hint="同域部署可留空；分开部署时填写服务 URL。">
@@ -1352,7 +1528,7 @@ function SettingsPanel({
           <Field label="公开汇总" hint="公开 token、费用、轮数、模型和时长。">
             <label className="toggle-line">
               <input type="checkbox" checked={settings.publishToLeaderboard} onChange={(event) => updateSettings({ publishToLeaderboard: event.target.checked })} />
-              <span>将完整 usage 运行发布到全网榜</span>
+              <span>将完整 usage 运行发布到排行榜</span>
             </label>
           </Field>
           <div className="data-actions">
@@ -1459,14 +1635,23 @@ export default function App() {
   const [session, setSession] = useState(INITIAL_SESSION)
   const [leaderboardVersion, setLeaderboardVersion] = useState(0)
   const [accountsState, setAccountsState] = useState({ status: 'idle', accounts: [], error: '' })
+  const [providerBlocklist, setProviderBlocklist] = useState(() => readProviderBlocklist())
   const [showOnboarding, setShowOnboarding] = useState(() => !hasOnboarded())
   const [participantLabel, setParticipantLabel] = useState(() => getParticipantLabel())
+  const [participantLabelSource, setParticipantLabelSource] = useState('local')
   const abortRef = useRef(null)
   const modelListAbortRef = useRef(null)
   const apiKeyStateRef = useRef({ provider: '', ready: false, request: 0 })
   const apiKeySaveTimerRef = useRef(null)
 
   const updateSettings = useCallback((patch) => setSettings((current) => ({ ...current, ...patch })), [])
+  const acceptLeaderboardParticipantLabel = useCallback((value) => {
+    const issuedLabel = normalizeLeaderboardParticipantLabel(value)
+    if (!issuedLabel) return false
+    setParticipantLabel(issuedLabel)
+    setParticipantLabelSource('leaderboard')
+    return true
+  }, [])
   const reloadAccounts = useCallback(async () => {
     setAccountsState((current) => ({ ...current, status: 'loading', error: '' }))
     try {
@@ -1542,6 +1727,26 @@ export default function App() {
   }, [reloadAccounts])
 
   useEffect(() => {
+    let active = true
+    setParticipantLabel(getParticipantLabel())
+    setParticipantLabelSource('local')
+
+    const timer = window.setTimeout(() => {
+      getLeaderboardProfile(settings.leaderboardApiUrl)
+        .then((profile) => {
+          if (!active) return
+          acceptLeaderboardParticipantLabel(profile?.participantLabel)
+        })
+        .catch(() => {})
+    }, 400)
+
+    return () => {
+      active = false
+      window.clearTimeout(timer)
+    }
+  }, [settings.leaderboardApiUrl, acceptLeaderboardParticipantLabel])
+
+  useEffect(() => {
     if (isSubscriptionProvider(settings.provider) && settings.targetMode !== 'tokens') {
       updateSettings({ targetMode: 'tokens' })
     }
@@ -1608,6 +1813,11 @@ export default function App() {
 
   const startRun = async () => {
     if (session.status === 'running') return
+    if (isProviderBlocked(settings)) {
+      setProviderBlocklist(readProviderBlocklist())
+      setSession({ ...INITIAL_SESSION, status: 'blocked', endedAt: Date.now(), message: providerBlockedMessage() })
+      return
+    }
     const preset = PROMPT_PRESETS.find((item) => item.id === settings.promptId) || PROMPT_PRESETS[0]
     const prompt = settings.promptId === 'custom' ? settings.customPrompt : preset.prompt
     const target = settings.targetMode === 'tokens' ? Number(settings.targetTokens) : Number(settings.targetAmount)
@@ -1629,9 +1839,10 @@ export default function App() {
       if (settings.publishToLeaderboard) {
         try {
           leaderboardSession = await createLeaderboardSession(settings.leaderboardApiUrl, settings)
-          latestLogs = [{ id: `board-${Date.now()}`, label: '全网榜', value: '运行票据已签发' }]
+          acceptLeaderboardParticipantLabel(leaderboardSession?.participantLabel)
+          latestLogs = [{ id: `board-${Date.now()}`, label: '排行榜', value: '运行票据已签发' }]
         } catch (error) {
-          latestLogs = [{ id: `board-${Date.now()}`, label: '全网榜未连接', value: error.message }]
+          latestLogs = [{ id: `board-${Date.now()}`, label: '排行榜未连接', value: error.message }]
         }
       }
 
@@ -1721,6 +1932,10 @@ export default function App() {
       if (error.name === 'AbortError') {
         finalStatus = 'stopped'
         finalMessage = '已停止。在途请求可能已被供应商计费，但未返回最终 usage'
+      } else if (error.providerBlock) {
+        finalStatus = 'blocked'
+        finalMessage = providerBlockedMessage()
+        setProviderBlocklist(readProviderBlocklist())
       } else {
         finalStatus = 'error'
         finalMessage = error.message
@@ -1754,13 +1969,13 @@ export default function App() {
               setLeaderboardVersion((value) => value + 1)
               setSession((current) => ({
                 ...current,
-                logs: [...current.logs, { id: `board-${Date.now()}`, label: '全网榜', value: '已发布' }].slice(-20),
+                logs: [...current.logs, { id: `board-${Date.now()}`, label: '排行榜', value: '已发布' }].slice(-20),
               }))
             })
             .catch((error) => {
               setSession((current) => ({
                 ...current,
-                logs: [...current.logs, { id: `board-${Date.now()}`, label: '全网榜发布失败', value: error.message }].slice(-20),
+                logs: [...current.logs, { id: `board-${Date.now()}`, label: '排行榜发布失败', value: error.message }].slice(-20),
               }))
             })
         }
@@ -1773,6 +1988,17 @@ export default function App() {
     abortRef.current?.abort()
   }
 
+  const handleUnblockProvider = (key) => {
+    unblockProvider(key)
+    setProviderBlocklist(readProviderBlocklist())
+  }
+
+  const handleClearProviderBlocklist = () => {
+    if (!window.confirm('确定解除全部 Provider 屏蔽吗？')) return
+    clearProviderBlocklist()
+    setProviderBlocklist([])
+  }
+
   const handleClear = async () => {
     if (!window.confirm('确定清空设置、运行记录和已保存凭据吗？')) return
     window.clearTimeout(apiKeySaveTimerRef.current)
@@ -1780,6 +2006,7 @@ export default function App() {
     const resetRequest = apiKeyStateRef.current.request + 1
     apiKeyStateRef.current = { provider: '', ready: false, request: resetRequest }
     clearLocalData()
+    setProviderBlocklist([])
     try {
       await clearLocalVault()
     } catch (error) {
@@ -1790,6 +2017,7 @@ export default function App() {
     apiKeyStateRef.current = { provider: DEFAULT_SETTINGS.provider, ready: true, request: resetRequest }
     setSettings(DEFAULT_SETTINGS)
     setParticipantLabel(getParticipantLabel())
+    setParticipantLabelSource('local')
     setSession(INITIAL_SESSION)
     setAccountsState({ status: 'idle', accounts: [], error: '' })
     setShowOnboarding(true)
@@ -1808,7 +2036,7 @@ export default function App() {
           <NavButton active={activePanel === 'settings'} icon={SlidersHorizontal} label="配置" onClick={() => setActivePanel('settings')} />
         </nav>
         <div className="sidebar-foot">
-          <div className="local-badge"><ShieldCheck size={18} /><span><strong>{participantLabel}</strong><small>排行榜编号</small></span></div>
+          <div className="local-badge"><ShieldCheck size={18} /><span><strong>{participantLabel}</strong></span></div>
           <button
             className="theme-toggle"
             type="button"
@@ -1827,7 +2055,15 @@ export default function App() {
         {activePanel === 'burn' ? (
           <BurnPanel settings={settings} updateSettings={updateSettings} catalogState={catalogState} session={session} onStart={startRun} onStop={stopRun} price={price} accounts={accountsState.accounts} />
         ) : null}
-        {activePanel === 'stats' ? <StatsPanel runs={runs} settings={settings} leaderboardVersion={leaderboardVersion} participantLabel={participantLabel} /> : null}
+        {activePanel === 'stats' ? (
+          <StatsPanel
+            runs={runs}
+            settings={settings}
+            leaderboardVersion={leaderboardVersion}
+            participantLabel={participantLabel}
+            onParticipantLabel={acceptLeaderboardParticipantLabel}
+          />
+        ) : null}
         {activePanel === 'settings' ? (
           <SettingsPanel
             settings={settings}
@@ -1843,6 +2079,10 @@ export default function App() {
             accountsState={accountsState}
             reloadAccounts={reloadAccounts}
             participantLabel={participantLabel}
+            participantLabelSource={participantLabelSource}
+            providerBlocklist={providerBlocklist}
+            onUnblockProvider={handleUnblockProvider}
+            onClearProviderBlocklist={handleClearProviderBlocklist}
           />
         ) : null}
       </main>

@@ -1518,10 +1518,18 @@ main {
   background: var(--surface);
 }
 
-.share-actions button:hover,
-.secondary-button:hover {
+.share-actions button:hover:not(:disabled),
+.secondary-button:hover:not(:disabled) {
   border-color: var(--ink-faint);
   background: var(--surface-strong);
+}
+
+.secondary-button:disabled {
+  color: var(--ink-faint);
+  border-color: var(--line);
+  background: var(--surface-subtle);
+  cursor: not-allowed;
+  opacity: 0.72;
 }
 
 .lower-stats-grid {
@@ -1666,6 +1674,13 @@ main {
   background: var(--accent-soft);
 }
 
+.leaderboard li.is-pinned {
+  margin-bottom: 6px;
+  border-bottom-color: transparent;
+  background: color-mix(in srgb, var(--accent-soft) 78%, var(--accent) 22%);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
 .leaderboard li > span {
   color: var(--accent);
   font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
@@ -1717,6 +1732,59 @@ main {
   white-space: nowrap;
 }
 
+.leaderboard-pagination {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: center;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.leaderboard-pagination button {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--ink-soft);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.leaderboard-pagination button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+.leaderboard-pagination button:disabled {
+  color: var(--ink-faint);
+  opacity: 0.52;
+}
+
+.leaderboard-pagination > span {
+  color: var(--ink-faint);
+  font-size: 10px;
+  text-align: center;
+}
+
+.leaderboard-pagination > span strong {
+  color: var(--ink);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+
+.leaderboard-pagination > small {
+  grid-column: 1 / -1;
+  color: var(--ink-faint);
+  font-size: 9px;
+  text-align: center;
+}
+
 .settings-page {
   max-width: 1160px;
 }
@@ -1739,6 +1807,60 @@ main {
 .settings-section-title > svg {
   flex: 0 0 auto;
   color: var(--accent);
+}
+
+.provider-blocklist-title .text-button {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.provider-blocklist {
+  display: grid;
+  gap: 8px;
+}
+
+.provider-block-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: center;
+  padding: 14px 15px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+}
+
+.provider-block-row > div {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.provider-block-row strong {
+  font-size: 11px;
+}
+
+.provider-block-row code {
+  overflow: hidden;
+  color: var(--ink-soft);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-block-row small,
+.provider-blocklist-empty {
+  color: var(--ink-faint);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.provider-blocklist-empty {
+  padding: 20px;
+  text-align: center;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-control);
 }
 
 .form-grid {
@@ -2001,6 +2123,47 @@ main {
 
 .account-worker-field {
   margin-bottom: 2px;
+}
+
+.oauth-service-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.oauth-service-field input {
+  min-width: 0;
+}
+
+.oauth-service-check {
+  min-width: 112px;
+}
+
+.oauth-service-status {
+  min-height: 20px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 8px;
+  color: var(--ink-faint);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.oauth-service-status svg {
+  flex: 0 0 auto;
+}
+
+.oauth-service-status.checking {
+  color: var(--ink-soft);
+}
+
+.oauth-service-status.ready {
+  color: var(--good);
+}
+
+.oauth-service-status.error {
+  color: var(--danger);
 }
 
 .oauth-project-field {
@@ -2688,6 +2851,31 @@ main {
   }
 
   .subscription-callout .secondary-button {
+    width: 100%;
+  }
+
+  .oauth-service-field {
+    grid-template-columns: 1fr;
+  }
+
+  .oauth-service-check {
+    width: 100%;
+  }
+
+  .provider-blocklist-title {
+    flex-wrap: wrap;
+  }
+
+  .provider-blocklist-title .text-button {
+    width: 100%;
+    margin-left: 35px;
+  }
+
+  .provider-block-row {
+    grid-template-columns: 1fr;
+  }
+
+  .provider-block-row .secondary-button {
     width: 100%;
   }
 

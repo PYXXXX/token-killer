@@ -1,5 +1,13 @@
 import { refreshSubscriptionCredential } from './accounts.js'
 import { getLocalAccount, saveLocalAccount } from './localVault.js'
+import {
+  ProviderBlockedError,
+  appendRequestMarker,
+  classifyProviderError,
+  getProviderIdentity,
+  providerBlockedMessage,
+} from './providerGuard.js'
+import { blockProvider, isProviderBlocked } from './storage.js'
 
 function parseExtraHeaders(raw) {
   if (!raw?.trim()) return {}
@@ -42,6 +50,26 @@ function buildHeaders(settings, format, includeContentType = true) {
     headers['anthropic-dangerous-direct-browser-access'] = 'true'
   }
   return headers
+}
+
+function rememberProviderBlock(settings, error) {
+  if (!error?.providerBlock) return error
+  const { key } = getProviderIdentity(settings)
+  error.providerKey = key
+  blockProvider(settings, error)
+  return error
+}
+
+function assertProviderAvailable(settings) {
+  const record = isProviderBlocked(settings)
+  if (!record) return
+  throw new ProviderBlockedError({
+    providerKey: record.key,
+    status: record.status,
+    code: record.reasonCode,
+    message: providerBlockedMessage(),
+    localBlock: true,
+  })
 }
 
 export function deriveModelsEndpoint(endpoint, format) {
@@ -132,7 +160,7 @@ export async function loadProviderModels(settings, signal) {
 }
 
 export function estimatePromptTokens(systemPrompt, prompt) {
-  const text = `${systemPrompt || ''}\n${prompt || ''}`
+  const text = `${systemPrompt || ''}\n${appendRequestMarker(prompt)}`
   let ascii = 0
   let wide = 0
   for (const character of text) {
@@ -179,9 +207,10 @@ function normalizeUsage(usage, fallbackInput = 0, fallbackOutput = 0) {
   return { input, output, total, reasoning, cached, verified: true, cost: Number(usage.cost ?? 0) }
 }
 
-function buildRequest(settings, prompt, maxOutput) {
+export function buildRequest(settings, prompt, maxOutput) {
   const format = directFormat(settings)
   const headers = buildHeaders(settings, format)
+  const markedPrompt = appendRequestMarker(prompt)
 
   if (format === 'anthropic') {
     return {
@@ -190,7 +219,7 @@ function buildRequest(settings, prompt, maxOutput) {
       body: {
         model: settings.model,
         system: settings.systemPrompt || undefined,
-        messages: [{ role: 'user', content: prompt }],
+        messages: [{ role: 'user', content: markedPrompt }],
         max_tokens: maxOutput,
         stream: settings.stream,
       },
@@ -219,7 +248,7 @@ function buildRequest(settings, prompt, maxOutput) {
         systemInstruction: settings.systemPrompt
           ? { parts: [{ text: settings.systemPrompt }] }
           : undefined,
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        contents: [{ role: 'user', parts: [{ text: markedPrompt }] }],
         generationConfig: { maxOutputTokens: maxOutput },
       },
     }
@@ -235,7 +264,7 @@ function buildRequest(settings, prompt, maxOutput) {
         input: [
           {
             role: 'user',
-            content: [{ type: 'input_text', text: prompt }],
+            content: [{ type: 'input_text', text: markedPrompt }],
           },
         ],
         max_output_tokens: maxOutput,
@@ -251,7 +280,7 @@ function buildRequest(settings, prompt, maxOutput) {
       headers,
       body: {
         model: settings.model,
-        prompt: settings.systemPrompt ? `${settings.systemPrompt}\n\n${prompt}` : prompt,
+        prompt: settings.systemPrompt ? `${settings.systemPrompt}\n\n${markedPrompt}` : markedPrompt,
         max_tokens: maxOutput,
         stream: false,
       },
@@ -268,7 +297,7 @@ function buildRequest(settings, prompt, maxOutput) {
     model: settings.model,
     messages: [
       ...(settings.systemPrompt ? [{ role: 'system', content: settings.systemPrompt }] : []),
-      { role: 'user', content: prompt },
+      { role: 'user', content: markedPrompt },
     ],
     stream: settings.stream,
     [tokenField]: maxOutput,
@@ -306,7 +335,11 @@ async function readResponsesStream(response, inputEstimate, onChunk) {
         continue
       }
       if (event.type === 'error' || event.error || event.response?.error) {
-        throw new Error(extractError(event.response || event, 'Responses 请求失败'))
+        throw classifyProviderError({
+          payload: event.response || event,
+          status: response.status,
+          fallback: 'Responses 请求失败',
+        })
       }
       const delta = event.type === 'response.output_text.delta' ? event.delta || '' : ''
       if (delta) {
@@ -344,6 +377,23 @@ async function resolveSubscriptionAccount(settings) {
   return { ...saved, credential }
 }
 
+export function buildSubscriptionPayload(settings, credential, prompt, maxOutput) {
+  return {
+    accessToken: credential.accessToken,
+    accountId: credential.accountId,
+    accountUuid: credential.accountUuid,
+    organizationUuid: credential.organizationUuid,
+    projectId: credential.projectId,
+    deviceId: credential.deviceId,
+    sessionId: credential.sessionId,
+    model: settings.model,
+    prompt: appendRequestMarker(prompt),
+    systemPrompt: settings.systemPrompt,
+    maxOutput,
+    reasoningEffort: settings.reasoningEffort || 'high',
+  }
+}
+
 async function callSubscription(settings, prompt, maxOutput, signal, onChunk) {
   if (!settings.model?.trim()) throw new Error('请先填写模型 ID')
   const account = await resolveSubscriptionAccount(settings)
@@ -356,27 +406,16 @@ async function callSubscription(settings, prompt, maxOutput, signal, onChunk) {
   }
   let response
   try {
+    assertProviderAvailable(settings)
     response = await fetch(`${base}${routes[account.provider]}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        accessToken: account.credential.accessToken,
-        accountId: account.credential.accountId,
-        accountUuid: account.credential.accountUuid,
-        organizationUuid: account.credential.organizationUuid,
-        projectId: account.credential.projectId,
-        deviceId: account.credential.deviceId,
-        sessionId: account.credential.sessionId,
-        model: settings.model,
-        prompt,
-        systemPrompt: settings.systemPrompt,
-        maxOutput,
-        reasoningEffort: settings.reasoningEffort || 'high',
-      }),
+      body: JSON.stringify(buildSubscriptionPayload(settings, account.credential, prompt, maxOutput)),
       signal,
     })
   } catch (error) {
     if (error.name === 'AbortError') throw error
+    if (error.providerBlock) throw error
     throw new Error(`订阅代理连接失败。${error.message ? ` ${error.message}` : ''}`)
   }
 
@@ -387,15 +426,24 @@ async function callSubscription(settings, prompt, maxOutput, signal, onChunk) {
     } catch {
       payload = null
     }
-    throw new Error(extractError(payload, `订阅代理返回 ${response.status} ${response.statusText}`))
+    throw rememberProviderBlock(settings, classifyProviderError({
+      payload,
+      status: response.status,
+      fallback: `订阅代理返回 ${response.status} ${response.statusText}`,
+    }))
   }
 
   const inputEstimate = estimatePromptTokens(settings.systemPrompt, prompt)
-  const result = account.provider === 'claude'
-    ? await readAnthropicStream(response, inputEstimate, onChunk)
-    : account.provider === 'gemini'
-      ? await readGeminiStream(response, inputEstimate, onChunk)
-      : await readResponsesStream(response, inputEstimate, onChunk)
+  let result
+  try {
+    result = account.provider === 'claude'
+      ? await readAnthropicStream(response, inputEstimate, onChunk)
+      : account.provider === 'gemini'
+        ? await readGeminiStream(response, inputEstimate, onChunk)
+        : await readResponsesStream(response, inputEstimate, onChunk)
+  } catch (error) {
+    throw rememberProviderBlock(settings, error)
+  }
   return {
     ...result,
     requestId: response.headers.get('x-upstream-request-id') || '',
@@ -420,7 +468,9 @@ async function readGeminiStream(response, inputEstimate, onChunk) {
     } catch {
       return
     }
-    if (event.error) throw new Error(extractError(event, 'Gemini 请求失败'))
+    if (event.error) {
+      throw classifyProviderError({ payload: event, status: response.status, fallback: 'Gemini 请求失败' })
+    }
     const payload = event.response || event
     if (payload.usageMetadata) usage = payload.usageMetadata
     const delta = payload.candidates?.[0]?.content?.parts?.map((part) => part.text || '').join('') || ''
@@ -468,7 +518,9 @@ async function readOpenAIStream(response, inputEstimate, onChunk) {
       } catch {
         continue
       }
-      if (event.error) throw new Error(extractError(event, '流式请求失败'))
+      if (event.error) {
+        throw classifyProviderError({ payload: event, status: response.status, fallback: '流式请求失败' })
+      }
       if (event.usage) usage = event.usage
       const delta = event.choices?.[0]?.delta?.content || event.choices?.[0]?.text || ''
       if (delta) {
@@ -510,7 +562,9 @@ async function readAnthropicStream(response, inputEstimate, onChunk) {
       } catch {
         continue
       }
-      if (event.type === 'error') throw new Error(extractError(event, '流式请求失败'))
+      if (event.type === 'error') {
+        throw classifyProviderError({ payload: event, status: response.status, fallback: '流式请求失败' })
+      }
       if (event.message?.usage) {
         input = Number(event.message.usage.input_tokens || 0)
         output = Number(event.message.usage.output_tokens || 0)
@@ -543,6 +597,7 @@ async function readAnthropicStream(response, inputEstimate, onChunk) {
 }
 
 export async function callProvider(settings, prompt, maxOutput, signal, onChunk) {
+  assertProviderAvailable(settings)
   if (SUBSCRIPTION_PROVIDERS.includes(settings.provider)) {
     return callSubscription(settings, prompt, maxOutput, signal, onChunk)
   }
@@ -559,6 +614,7 @@ export async function callProvider(settings, prompt, maxOutput, signal, onChunk)
 
   let response
   try {
+    assertProviderAvailable(settings)
     response = await fetch(request.endpoint || settings.endpoint, {
       method: 'POST',
       headers: request.headers,
@@ -567,6 +623,7 @@ export async function callProvider(settings, prompt, maxOutput, signal, onChunk)
     })
   } catch (error) {
     if (error.name === 'AbortError') throw error
+    if (error.providerBlock) throw error
     throw new Error(`网络请求失败，请检查请求地址和连接设置。${error.message ? ` ${error.message}` : ''}`)
   }
 
@@ -577,23 +634,33 @@ export async function callProvider(settings, prompt, maxOutput, signal, onChunk)
     } catch {
       payload = null
     }
-    throw new Error(extractError(payload, `API 返回 ${response.status} ${response.statusText}`))
+    throw rememberProviderBlock(settings, classifyProviderError({
+      payload,
+      status: response.status,
+      fallback: `API 返回 ${response.status} ${response.statusText}`,
+    }))
   }
 
   const inputEstimate = estimatePromptTokens(settings.systemPrompt, prompt)
   let result
   const useStream = settings.stream && request.format !== 'openai-completions'
   if (useStream) {
-    result =
-      request.format === 'anthropic'
-        ? await readAnthropicStream(response, inputEstimate, onChunk)
-        : request.format === 'openai-responses'
-          ? await readResponsesStream(response, inputEstimate, onChunk)
-          : request.format === 'gemini'
-            ? await readGeminiStream(response, inputEstimate, onChunk)
-            : await readOpenAIStream(response, inputEstimate, onChunk)
+    try {
+      result =
+        request.format === 'anthropic'
+          ? await readAnthropicStream(response, inputEstimate, onChunk)
+          : request.format === 'openai-responses'
+            ? await readResponsesStream(response, inputEstimate, onChunk)
+            : request.format === 'gemini'
+              ? await readGeminiStream(response, inputEstimate, onChunk)
+              : await readOpenAIStream(response, inputEstimate, onChunk)
+    } catch (error) {
+      throw rememberProviderBlock(settings, error)
+    }
   } else {
     const payload = await response.json()
+    const structuredError = classifyProviderError({ payload, status: response.status })
+    if (structuredError.providerBlock) throw rememberProviderBlock(settings, structuredError)
     const text =
       request.format === 'anthropic'
         ? payload.content?.map((part) => part.text || '').join('') || ''

@@ -1,4 +1,4 @@
-import { handleSubscriptionApi, subscriptionConfigured } from './subscription.js'
+import { handleSubscriptionApi, subscriptionStatus } from './subscription.js'
 import { rankForTokens } from '../src/lib/ranks.js'
 
 const JSON_HEADERS = {
@@ -11,6 +11,14 @@ const SESSION_TTL_SECONDS = 24 * 60 * 60
 const SESSION_LIMIT_PER_HOUR = 20
 const MAX_TOKENS_PER_RUN = 10_000_000_000
 const MAX_COST_MICROS_PER_RUN = 1_000_000_000_000
+const LEADERBOARD_PAGE_SIZE = 10
+const LEADERBOARD_VISIBLE_LIMIT = 100
+const LEADERBOARD_MAX_PAGE = LEADERBOARD_VISIBLE_LIMIT / LEADERBOARD_PAGE_SIZE
+const PARTICIPANT_NUMBER_MIN = 100000
+const PARTICIPANT_NUMBER_MAX = 999999
+const PARTICIPANT_NUMBER_CAPACITY = PARTICIPANT_NUMBER_MAX - PARTICIPANT_NUMBER_MIN + 1
+const PARTICIPANT_ALLOCATION_ATTEMPTS = 64
+const PARTICIPANT_ALLOCATION_STEP = 7919
 
 const SPECIAL_CHINA_REGIONS = {
   HK: '香港特别行政区',
@@ -81,7 +89,7 @@ async function handleApi(request, env, url) {
           service: 'token-killer-community',
           storage: 'cloudflare-d1',
           verification: 'supplier-usage-client-receipt',
-          subscriptionOAuth: subscriptionConfigured(env),
+          subscriptionOAuth: subscriptionStatus(env),
         },
         200,
         cors,
@@ -97,7 +105,7 @@ async function handleApi(request, env, url) {
 
     requireConfiguration(env)
 
-    if (request.method === 'GET' && url.pathname === '/api/leaderboard') {
+    if (['GET', 'POST'].includes(request.method) && url.pathname === '/api/leaderboard') {
       return await getLeaderboard(request, env, url, cors)
     }
     if (request.method === 'POST' && url.pathname === '/api/leaderboard/profile') {
@@ -113,18 +121,31 @@ async function handleApi(request, env, url) {
     return json({ error: 'Not found.' }, 404, cors)
   } catch (error) {
     const status = Number(error.status) || 500
+    if (error.providerBlock) {
+      return json({
+        error: {
+          code: String(error.code || ''),
+          type: 'provider_blocked',
+          message: String(error.message || 'Provider rejected this request.'),
+        },
+      }, status, cors)
+    }
     const message = status >= 500 ? 'Community service is temporarily unavailable.' : error.message
     return json({ error: message }, status, cors)
   }
 }
 
 async function getLeaderboard(request, env, url, cors) {
-  const period = url.searchParams.get('period') === 'all' ? 'all' : 'day'
-  const limit = clampInteger(url.searchParams.get('limit'), 1, 100, 25)
+  const input = request.method === 'POST' ? await readJson(request) : Object.fromEntries(url.searchParams)
+  const period = input.period === 'all' ? 'all' : 'day'
+  const page = integer(input.page ?? 1, 'page', 1, LEADERBOARD_MAX_PAGE)
+  const installationId = input.installationId
+    ? requiredText(input.installationId, 'installationId', 16, 128)
+    : ''
   const today = new Date().toISOString().slice(0, 10)
   const geo = normalizedGeo(request)
-  const requestedScope = ['country', 'province', 'city'].includes(url.searchParams.get('scope'))
-    ? url.searchParams.get('scope')
+  const requestedScope = ['country', 'province', 'city'].includes(input.scope)
+    ? input.scope
     : 'global'
   const filter = scopeFilter(requestedScope, geo)
   const clauses = []
@@ -140,52 +161,100 @@ async function getLeaderboard(request, env, url, cors) {
   }
 
   const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''
-  const statement = env.TOKEN_KILLER_DB.prepare(
-    `SELECT
+  const rankedQuery = `WITH ranked AS (
+     SELECT
        profile_hash,
-       MAX(CASE
-         WHEN nickname GLOB '燃烧者 #[0-9][0-9][0-9][0-9][0-9][0-9]' THEN nickname
-         ELSE NULL
-       END) AS nickname,
        SUM(tokens) AS tokens,
        SUM(cost_micros) AS cost_micros,
        SUM(rounds) AS rounds,
        COUNT(*) AS runs,
-       MAX(created_at) AS last_activity
+       MAX(created_at) AS last_activity,
+       ROW_NUMBER() OVER (
+         ORDER BY SUM(tokens) DESC, MAX(created_at) ASC, profile_hash ASC
+       ) AS rank
      FROM leaderboard_runs
      ${where}
      GROUP BY profile_hash
-     ORDER BY tokens DESC, last_activity ASC
-     LIMIT ?`,
+   ), labeled AS (
+     SELECT ranked.*, leaderboard_profiles.participant_number
+     FROM ranked
+     LEFT JOIN leaderboard_profiles USING (profile_hash)
+   )`
+  const startRank = ((page - 1) * LEADERBOARD_PAGE_SIZE) + 1
+  const endRank = Math.min(page * LEADERBOARD_PAGE_SIZE, LEADERBOARD_VISIBLE_LIMIT)
+  const profileHash = installationId
+    ? await digestIdentity(env.LEADERBOARD_HMAC_SECRET, `profile:${installationId}`)
+    : ''
+  const requesterProfile = profileHash
+    ? await getOrCreateLeaderboardProfile(env, profileHash)
+    : null
+  const [pageResult, countResult, currentResult] = await env.TOKEN_KILLER_DB.batch([
+    env.TOKEN_KILLER_DB.prepare(
+      `${rankedQuery}
+       SELECT * FROM labeled
+       WHERE rank BETWEEN ? AND ?
+       ORDER BY rank ASC`,
+    ).bind(...bindings, startRank, endRank),
+    env.TOKEN_KILLER_DB.prepare(
+      `${rankedQuery}
+       SELECT COUNT(*) AS count FROM labeled
+       WHERE rank <= ?`,
+    ).bind(...bindings, LEADERBOARD_VISIBLE_LIMIT),
+    env.TOKEN_KILLER_DB.prepare(
+      `${rankedQuery}
+       SELECT * FROM labeled
+       WHERE profile_hash = ?
+       LIMIT 1`,
+    ).bind(...bindings, profileHash),
+  ])
+  const rows = pageResult.results || []
+  const visibleTotal = Math.min(
+    LEADERBOARD_VISIBLE_LIMIT,
+    Number(countResult.results?.[0]?.count || 0),
   )
-  const { results = [] } = await statement.bind(...bindings, limit).all()
-  const entries = results.map((entry, index) => ({
-    rank: index + 1,
-    participantLabel: /^燃烧者 #[1-9]\d{5}$/.test(entry.nickname || '')
-      ? entry.nickname
-      : participantLabel(entry.profile_hash),
-    tokens: Number(entry.tokens || 0),
-    cost: Number(entry.cost_micros || 0) / 1_000_000,
-    rounds: Number(entry.rounds || 0),
-    runs: Number(entry.runs || 0),
-    lastActivity: Number(entry.last_activity || 0),
-    tier: rankForTokens(Number(entry.tokens || 0)),
-    verification: 'supplier-usage-client-receipt',
-  }))
+  const pageCount = Math.max(1, Math.ceil(visibleTotal / LEADERBOARD_PAGE_SIZE))
+  const currentRow = currentResult.results?.[0] || null
+  await fillMissingParticipantNumbers(env, [...rows, currentRow].filter(Boolean))
+  const entries = rows.map((entry) => leaderboardEntry(entry, entry.profile_hash === profileHash))
+  const currentEntry = currentRow ? leaderboardEntry(currentRow, true) : null
 
   return json({
     period,
     scope: filter.scope,
     date: period === 'day' ? today : null,
     context: publicGeoContext(geo),
+    page,
+    pageSize: LEADERBOARD_PAGE_SIZE,
+    pageCount,
+    visibleTotal,
+    visibleLimit: LEADERBOARD_VISIBLE_LIMIT,
+    participantLabel: requesterProfile?.participantLabel || null,
     entries,
+    currentEntry,
   }, 200, cors)
+}
+
+function leaderboardEntry(entry, isCurrent = false) {
+  const tokens = Number(entry.tokens || 0)
+  return {
+    rank: Number(entry.rank || 0),
+    participantLabel: formatParticipantLabel(entry.participant_number),
+    tokens,
+    cost: Number(entry.cost_micros || 0) / 1_000_000,
+    rounds: Number(entry.rounds || 0),
+    runs: Number(entry.runs || 0),
+    lastActivity: Number(entry.last_activity || 0),
+    tier: rankForTokens(tokens),
+    verification: 'supplier-usage-client-receipt',
+    isCurrent,
+  }
 }
 
 async function getLeaderboardProfile(request, env, cors) {
   const body = await readJson(request)
   const installationId = requiredText(body.installationId, 'installationId', 16, 128)
   const profileHash = await digestIdentity(env.LEADERBOARD_HMAC_SECRET, `profile:${installationId}`)
+  const profile = await getOrCreateLeaderboardProfile(env, profileHash)
   const geo = normalizedGeo(request)
   const context = publicGeoContext(geo)
   const ranks = []
@@ -197,7 +266,7 @@ async function getLeaderboardProfile(request, env, cors) {
 
   const globalResult = ranks.find((item) => item.scope === 'global') || { tokens: 0, rank: null }
   return json({
-    participantLabel: participantLabel(installationId),
+    participantLabel: profile.participantLabel,
     totalTokens: globalResult.tokens,
     tier: rankForTokens(globalResult.tokens),
     context,
@@ -208,7 +277,6 @@ async function getLeaderboardProfile(request, env, cors) {
 async function createSession(request, env, cors) {
   const body = await readJson(request)
   const installationId = requiredText(body.installationId, 'installationId', 16, 128)
-  const nickname = participantLabel(installationId)
   const provider = requiredText(body.provider, 'provider', 1, 48)
   const model = requiredText(body.model, 'model', 1, 160)
   const targetMode = body.targetMode === 'money' ? 'money' : 'tokens'
@@ -217,6 +285,8 @@ async function createSession(request, env, cors) {
   const now = Math.floor(Date.now() / 1000)
   const expiresAt = now + SESSION_TTL_SECONDS
   const profileHash = await digestIdentity(env.LEADERBOARD_HMAC_SECRET, `profile:${installationId}`)
+  const profile = await getOrCreateLeaderboardProfile(env, profileHash)
+  const nickname = profile.participantLabel
   const ip = request.headers.get('cf-connecting-ip') || 'local'
   const ipHash = await digestIdentity(env.LEADERBOARD_HMAC_SECRET, `ip:${ip}`)
   const geo = normalizedGeo(request)
@@ -248,7 +318,7 @@ async function createSession(request, env, cors) {
     )
     .run()
 
-  return json({ sessionId: id, ticket, expiresAt }, 201, cors)
+  return json({ sessionId: id, ticket, expiresAt, participantLabel: profile.participantLabel }, 201, cors)
 }
 
 async function submitRun(request, env, cors) {
@@ -318,34 +388,26 @@ async function submitRun(request, env, cors) {
 
 async function profileRankForScope(env, profileHash, requestedScope, geo) {
   const filter = scopeFilter(requestedScope, geo)
-  const profileClauses = ['profile_hash = ?']
-  const profileBindings = [profileHash]
-  if (filter.clause) {
-    profileClauses.push(filter.clause)
-    profileBindings.push(...filter.bindings)
-  }
-
-  const own = await env.TOKEN_KILLER_DB.prepare(
-    `SELECT COALESCE(SUM(tokens), 0) AS tokens
-     FROM leaderboard_runs
-     WHERE ${profileClauses.join(' AND ')}`,
-  ).bind(...profileBindings).first()
-  const tokens = Number(own?.tokens || 0)
-  if (!tokens) return { rank: null, tokens: 0 }
-
   const where = filter.clause ? `WHERE ${filter.clause}` : ''
-  const ahead = await env.TOKEN_KILLER_DB.prepare(
-    `SELECT COUNT(*) AS count
-     FROM (
-       SELECT profile_hash
+  const result = await env.TOKEN_KILLER_DB.prepare(
+    `WITH ranked AS (
+       SELECT
+         profile_hash,
+         SUM(tokens) AS tokens,
+         ROW_NUMBER() OVER (
+           ORDER BY SUM(tokens) DESC, MAX(created_at) ASC, profile_hash ASC
+         ) AS rank
        FROM leaderboard_runs
        ${where}
        GROUP BY profile_hash
-       HAVING SUM(tokens) > ?
-     )`,
-  ).bind(...filter.bindings, tokens).first()
+     )
+     SELECT rank, tokens FROM ranked
+     WHERE profile_hash = ?
+     LIMIT 1`,
+  ).bind(...filter.bindings, profileHash).first()
 
-  return { rank: Number(ahead?.count || 0) + 1, tokens }
+  if (!result) return { rank: null, tokens: 0 }
+  return { rank: Number(result.rank), tokens: Number(result.tokens || 0) }
 }
 
 function scopeFilter(requestedScope, geo) {
@@ -516,13 +578,89 @@ async function readJson(request) {
   }
 }
 
-function participantLabel(seed) {
+function participantNumberSeed(seed) {
   let hash = 2166136261
   for (const character of String(seed || '')) {
     hash ^= character.codePointAt(0)
     hash = Math.imul(hash, 16777619)
   }
-  return `燃烧者 #${100000 + ((hash >>> 0) % 900000)}`
+  return hash >>> 0
+}
+
+function participantNumberCandidate(profileHash, attempt) {
+  return PARTICIPANT_NUMBER_MIN + (
+    (participantNumberSeed(profileHash) + (attempt * PARTICIPANT_ALLOCATION_STEP))
+    % PARTICIPANT_NUMBER_CAPACITY
+  )
+}
+
+function formatParticipantLabel(value) {
+  const number = Number(value)
+  if (!Number.isInteger(number) || number < PARTICIPANT_NUMBER_MIN || number > PARTICIPANT_NUMBER_MAX) {
+    throw httpError(500, 'Leaderboard participant number is invalid.')
+  }
+  return `燃烧者 #${number}`
+}
+
+async function readLeaderboardProfile(env, profileHash) {
+  return env.TOKEN_KILLER_DB.prepare(
+    `SELECT participant_number
+     FROM leaderboard_profiles
+     WHERE profile_hash = ?
+     LIMIT 1`,
+  ).bind(profileHash).first()
+}
+
+async function getOrCreateLeaderboardProfile(env, profileHash) {
+  const existing = await readLeaderboardProfile(env, profileHash)
+  if (existing) {
+    return {
+      profileHash,
+      participantNumber: Number(existing.participant_number),
+      participantLabel: formatParticipantLabel(existing.participant_number),
+    }
+  }
+
+  const createdAt = Math.floor(Date.now() / 1000)
+  for (let attempt = 0; attempt < PARTICIPANT_ALLOCATION_ATTEMPTS; attempt += 1) {
+    const participantNumber = participantNumberCandidate(profileHash, attempt)
+    await env.TOKEN_KILLER_DB.prepare(
+      `INSERT OR IGNORE INTO leaderboard_profiles
+        (profile_hash, participant_number, created_at)
+       VALUES (?, ?, ?)`,
+    ).bind(profileHash, participantNumber, createdAt).run()
+
+    const assigned = await readLeaderboardProfile(env, profileHash)
+    if (assigned) {
+      return {
+        profileHash,
+        participantNumber: Number(assigned.participant_number),
+        participantLabel: formatParticipantLabel(assigned.participant_number),
+      }
+    }
+  }
+
+  throw httpError(503, 'Leaderboard participant number could not be allocated.')
+}
+
+async function fillMissingParticipantNumbers(env, entries) {
+  const missing = [...new Set(
+    entries
+      .filter((entry) => !entry.participant_number && entry.profile_hash)
+      .map((entry) => entry.profile_hash),
+  )]
+  if (!missing.length) return
+
+  const assigned = new Map()
+  for (const profileHash of missing) {
+    const profile = await getOrCreateLeaderboardProfile(env, profileHash)
+    assigned.set(profileHash, profile.participantNumber)
+  }
+  for (const entry of entries) {
+    if (!entry.participant_number && assigned.has(entry.profile_hash)) {
+      entry.participant_number = assigned.get(entry.profile_hash)
+    }
+  }
 }
 
 function requiredText(value, name, min, max) {
@@ -541,12 +679,6 @@ function integer(value, name, min, max) {
   const number = finiteNumber(value, name, min, max)
   if (!Number.isInteger(number)) throw httpError(400, `${name} must be an integer.`)
   return number
-}
-
-function clampInteger(value, min, max, fallback) {
-  const number = Number(value)
-  if (!Number.isInteger(number)) return fallback
-  return Math.min(max, Math.max(min, number))
 }
 
 function httpError(status, message) {
