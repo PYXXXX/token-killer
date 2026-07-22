@@ -796,6 +796,7 @@ main {
 }
 
 .start-button,
+.pause-button,
 .stop-button,
 .secondary-button,
 .danger-button,
@@ -836,6 +837,35 @@ main {
 .run-console > .stop-button {
   width: 100%;
   margin-top: 16px;
+}
+
+.run-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 9px;
+  margin-top: 16px;
+}
+
+.run-actions .start-button,
+.run-actions .pause-button,
+.run-actions .stop-button {
+  width: 100%;
+}
+
+.pause-button {
+  color: #e8e2d8;
+  border: 1px solid #504b43;
+  background: #302e29;
+}
+
+.pause-button:hover:not(:disabled) {
+  background: #3a3731;
+}
+
+.pause-button:disabled {
+  color: #80796f;
+  cursor: wait;
+  opacity: 0.72;
 }
 
 .stop-button {
@@ -890,6 +920,13 @@ main {
 
 .status-completed .run-status {
   color: #9fc6aa;
+}
+
+.status-pausing .run-status,
+.status-paused .run-status,
+.status-limited .run-status,
+.status-unknown .run-status {
+  color: #e7b879;
 }
 
 .metrics-grid {
@@ -1097,13 +1134,33 @@ main {
 
 .rank-region-head strong {
   min-width: 0;
-  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
   color: var(--ink-soft);
   font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
   font-size: 9px;
   font-weight: 620;
+}
+
+.rank-region-head strong > span {
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.rank-region-head strong > small {
+  flex: 0 0 auto;
+  padding: 3px 6px;
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--line));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent-soft) 48%, transparent);
+  font-family: inherit;
+  font-size: 8px;
+  font-weight: 700;
 }
 
 .rank-scope-grid {
@@ -1912,6 +1969,24 @@ main {
 .field select {
   height: 42px;
   padding: 0 12px;
+}
+
+.input-with-unit {
+  position: relative;
+}
+
+.input-with-unit input {
+  padding-right: 48px;
+}
+
+.input-with-unit > span {
+  position: absolute;
+  top: 50%;
+  right: 13px;
+  color: var(--ink-faint);
+  font-size: 10px;
+  transform: translateY(-50%);
+  pointer-events: none;
 }
 
 .field textarea {
@@ -2792,6 +2867,7 @@ main {
 
   .rank-region-head strong {
     max-width: 100%;
+    justify-content: flex-start;
   }
 
   .stacked-bars {

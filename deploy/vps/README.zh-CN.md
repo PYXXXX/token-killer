@@ -7,9 +7,12 @@
 - 应用：`/opt/token-killer`
 - 环境变量：`/opt/token-killer/deploy/vps/.env`
 - 排行榜密钥：`/opt/token-killer/secrets/leaderboard_hmac_secret`
+- 大陆地区凭证密钥：`/opt/token-killer/secrets/geo_assertion_hmac_secret`
 - SQLite Docker volume：`token-killer-data`
 - 数据库备份：`/opt/token-killer/backups`
 - Caddy 配置：`/opt/cliproxyapi/caddy/Caddyfile`
+
+若这台 VPS 还承担大陆直连地区探测，请参阅[部署指南](../../docs/deployment.zh-CN.md#可选优先识别大陆直连地区)。只有上游可信代理会清除访客输入并注入经过校验的 `X-Geo-*` Header 时，才可在 `.env` 中设置 `TRUST_GEO_HEADERS=true`。
 
 ## 常用命令
 

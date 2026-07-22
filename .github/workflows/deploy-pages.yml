@@ -27,8 +27,14 @@ jobs:
           cache: npm
       - name: Install
         run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Test
+        run: npm test
       - name: Build
         run: npm run build
+        env:
+          VITE_MAINLAND_GEO_API_URL: ${{ vars.VITE_MAINLAND_GEO_API_URL }}
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:

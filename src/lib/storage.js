@@ -5,6 +5,7 @@ const RUNS_KEY = 'token-killer:runs:v1'
 const ONBOARDED_KEY = 'token-killer:onboarded:v1'
 const INSTALLATION_KEY = 'token-killer:installation:v1'
 const PROVIDER_BLOCKLIST_KEY = 'token-killer:provider-blocklist:v1'
+const RUN_CHECKPOINT_KEY = 'token-killer:run-checkpoint:v1'
 
 function sanitizeProviderBlock(record) {
   if (!record || typeof record !== 'object' || !record.key) return null
@@ -88,6 +89,70 @@ export function writeRuns(runs) {
   localStorage.setItem(RUNS_KEY, JSON.stringify(runs.slice(0, 500)))
 }
 
+export function writeRunCheckpoint(checkpoint) {
+  if (!checkpoint?.id || !Number(checkpoint.rounds)) return
+  const safe = {
+    id: String(checkpoint.id),
+    date: String(checkpoint.date || ''),
+    startedAt: Number(checkpoint.startedAt) || Date.now(),
+    updatedAt: Date.now(),
+    provider: String(checkpoint.provider || 'custom'),
+    model: String(checkpoint.model || ''),
+    promptId: String(checkpoint.promptId || ''),
+    tokens: Math.max(0, Number(checkpoint.tokens) || 0),
+    input: Math.max(0, Number(checkpoint.input) || 0),
+    output: Math.max(0, Number(checkpoint.output) || 0),
+    cost: Math.max(0, Number(checkpoint.cost) || 0),
+    rounds: Math.max(0, Number(checkpoint.rounds) || 0),
+    verifiedRounds: Math.max(0, Number(checkpoint.verifiedRounds) || 0),
+    pricing: checkpoint.pricing && typeof checkpoint.pricing === 'object' ? checkpoint.pricing : null,
+  }
+  localStorage.setItem(RUN_CHECKPOINT_KEY, JSON.stringify(safe))
+}
+
+export function readRunCheckpoint() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(RUN_CHECKPOINT_KEY) || 'null')
+    return parsed?.id && Number(parsed.rounds) > 0 ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+export function clearRunCheckpoint() {
+  localStorage.removeItem(RUN_CHECKPOINT_KEY)
+}
+
+export function recoverInterruptedRun() {
+  const runs = readRuns()
+  const checkpoint = readRunCheckpoint()
+  if (!checkpoint) {
+    clearRunCheckpoint()
+    return runs
+  }
+  const recovered = {
+    id: checkpoint.id,
+    date: checkpoint.date,
+    startedAt: checkpoint.startedAt,
+    duration: Math.max(0, Number(checkpoint.updatedAt) - Number(checkpoint.startedAt)),
+    provider: checkpoint.provider,
+    model: checkpoint.model,
+    promptId: checkpoint.promptId,
+    tokens: checkpoint.tokens,
+    input: checkpoint.input,
+    output: checkpoint.output,
+    cost: checkpoint.cost,
+    rounds: checkpoint.rounds,
+    verified: checkpoint.rounds === checkpoint.verifiedRounds,
+    status: 'interrupted',
+    pricing: checkpoint.pricing || undefined,
+  }
+  const nextRuns = [recovered, ...runs.filter((run) => run.id !== recovered.id)].slice(0, 500)
+  writeRuns(nextRuns)
+  clearRunCheckpoint()
+  return nextRuns
+}
+
 export function hasOnboarded() {
   return localStorage.getItem(ONBOARDED_KEY) === 'yes'
 }
@@ -137,5 +202,6 @@ export function clearLocalData() {
   localStorage.removeItem(RUNS_KEY)
   localStorage.removeItem(ONBOARDED_KEY)
   localStorage.removeItem(INSTALLATION_KEY)
+  clearRunCheckpoint()
   clearProviderBlocklist()
 }

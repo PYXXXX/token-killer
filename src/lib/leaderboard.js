@@ -1,4 +1,5 @@
 import { getInstallationId } from './storage.js'
+import { resolveMainlandGeoAssertion } from './geo.js'
 
 const REQUEST_TIMEOUT = 5000
 const PARTICIPANT_LABEL_PATTERN = /^燃烧者 #[1-9]\d{5}$/
@@ -43,8 +44,9 @@ async function request(base, path, options = {}) {
   }
 }
 
-export async function getLeaderboard(base, period = 'day', scope = 'global', page = 1, locale = 'zh-CN') {
+export async function getLeaderboard(base, period = 'day', scope = 'global', page = 1, locale = 'zh-CN', mainlandGeoApiUrl = '') {
   const safeScope = ['country', 'province', 'city'].includes(scope) ? scope : 'global'
+  const geoAssertion = await resolveMainlandGeoAssertion(mainlandGeoApiUrl)
   return request(base, '/api/leaderboard', {
     method: 'POST',
     body: JSON.stringify({
@@ -53,19 +55,22 @@ export async function getLeaderboard(base, period = 'day', scope = 'global', pag
       scope: safeScope,
       page: Math.min(10, Math.max(1, Number.parseInt(page, 10) || 1)),
       locale,
+      geoAssertion: geoAssertion || undefined,
     }),
   })
 }
 
-export async function getLeaderboardProfile(base, locale = 'zh-CN') {
+export async function getLeaderboardProfile(base, locale = 'zh-CN', mainlandGeoApiUrl = '') {
+  const geoAssertion = await resolveMainlandGeoAssertion(mainlandGeoApiUrl)
   return request(base, '/api/leaderboard/profile', {
     method: 'POST',
-    body: JSON.stringify({ installationId: getInstallationId(), locale }),
+    body: JSON.stringify({ installationId: getInstallationId(), locale, geoAssertion: geoAssertion || undefined }),
   })
 }
 
 export async function createLeaderboardSession(base, settings) {
   if (!settings.publishToLeaderboard) return null
+  const geoAssertion = await resolveMainlandGeoAssertion(settings.mainlandGeoApiUrl)
   return request(base, '/api/leaderboard/sessions', {
     method: 'POST',
     body: JSON.stringify({
@@ -74,6 +79,7 @@ export async function createLeaderboardSession(base, settings) {
       model: settings.model,
       targetMode: settings.targetMode,
       targetValue: settings.targetMode === 'money' ? Number(settings.targetAmount) : Number(settings.targetTokens),
+      geoAssertion: geoAssertion || undefined,
     }),
   })
 }

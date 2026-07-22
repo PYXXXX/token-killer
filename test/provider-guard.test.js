@@ -19,7 +19,10 @@ import {
   clearProviderBlocklist,
   isProviderBlocked,
   readProviderBlocklist,
+  readRunCheckpoint,
+  recoverInterruptedRun,
   unblockProvider,
+  writeRunCheckpoint,
 } from '../src/lib/storage.js'
 
 class MemoryStorage {
@@ -278,7 +281,35 @@ test('content_policy_violation blocks, while HTTP and network failures do not pe
     globalThis.fetch = async () => {
       throw new TypeError('CORS or network failure')
     }
-    await assert.rejects(callProvider(settings, 'Prompt', 32), /网络请求失败/)
+    await assert.rejects(
+      callProvider(settings, 'Prompt', 32),
+      (error) => error.outcomeUnknown === true && /不会自动重试/.test(error.message),
+    )
+    assert.equal(readProviderBlocklist().length, 0)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('inference timeout covers the response lifecycle and never retries or blocks the provider', async () => {
+  const originalFetch = globalThis.fetch
+  const settings = directSettings({ requestTimeoutSeconds: 0.005 })
+  let fetches = 0
+  try {
+    globalThis.fetch = async (_url, options) => {
+      fetches += 1
+      return new Promise((_resolve, reject) => {
+        options.signal.addEventListener('abort', () => {
+          reject(options.signal.reason || new DOMException('Aborted', 'AbortError'))
+        }, { once: true })
+      })
+    }
+
+    await assert.rejects(
+      callProvider(settings, 'Prompt', 32),
+      (error) => error.outcomeUnknown === true && /请求超时/.test(error.message),
+    )
+    assert.equal(fetches, 1)
     assert.equal(readProviderBlocklist().length, 0)
   } finally {
     globalThis.fetch = originalFetch
@@ -317,6 +348,38 @@ test('blocklist persists, deduplicates, unblocks, and is cleared with all local 
   blockProvider(settings, { code: 'sensitive_words_detected', status: 500 })
   clearLocalData()
   assert.deepEqual(readProviderBlocklist(), [])
+})
+
+test('completed-round checkpoints recover after a reload without storing prompts or credentials', () => {
+  writeRunCheckpoint({
+    id: 'run-checkpoint',
+    date: '2026-07-23',
+    startedAt: 1_000,
+    provider: 'custom',
+    model: 'test-model',
+    promptId: 'custom',
+    tokens: 120,
+    input: 20,
+    output: 100,
+    cost: 0.01,
+    rounds: 2,
+    verifiedRounds: 2,
+    apiKey: 'must-not-be-saved',
+    prompt: 'must-not-be-saved',
+    pricing: { source: 'OpenRouter', matchedModel: 'vendor/test-model' },
+  })
+
+  const rawCheckpoint = localStorage.getItem('token-killer:run-checkpoint:v1')
+  assert.equal(rawCheckpoint.includes('must-not-be-saved'), false)
+  const recovered = recoverInterruptedRun()
+  assert.equal(recovered.length, 1)
+  assert.equal(recovered[0].status, 'interrupted')
+  assert.equal(recovered[0].tokens, 120)
+  assert.equal(recovered[0].verified, true)
+  assert.equal(readRunCheckpoint(), null)
+
+  clearLocalData()
+  assert.equal(recoverInterruptedRun().length, 0)
 })
 
 test('Worker preserves an explicit upstream block code even when upstream returns 500', async () => {

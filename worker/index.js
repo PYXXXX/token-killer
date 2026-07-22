@@ -19,6 +19,8 @@ const PARTICIPANT_NUMBER_MAX = 999999
 const PARTICIPANT_NUMBER_CAPACITY = PARTICIPANT_NUMBER_MAX - PARTICIPANT_NUMBER_MIN + 1
 const PARTICIPANT_ALLOCATION_ATTEMPTS = 64
 const PARTICIPANT_ALLOCATION_STEP = 7919
+const GEO_ASSERTION_TTL_SECONDS = 10 * 60
+const GEO_ASSERTION_MAX_CLOCK_SKEW_SECONDS = 60
 
 const SPECIAL_CHINA_REGIONS = {
   HK: '香港特别行政区',
@@ -98,11 +100,16 @@ async function handleApi(request, env, url) {
           service: 'token-killer-community',
           storage: env.STORAGE_KIND || 'cloudflare-d1',
           verification: 'supplier-usage-client-receipt',
+          mainlandGeoAssertion: geoAssertionSecret(env).length >= 32,
           subscriptionOAuth: subscriptionStatus(env),
         },
         200,
         cors,
       )
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/geo/assertion') {
+      return await createMainlandGeoAssertion(request, env, cors)
     }
 
     if (
@@ -144,6 +151,96 @@ async function handleApi(request, env, url) {
   }
 }
 
+function geoAssertionSecret(env) {
+  return String(env.GEO_ASSERTION_HMAC_SECRET || env.LEADERBOARD_HMAC_SECRET || '')
+}
+
+function trustedCountryCode(request, env) {
+  const cfCountry = safeGeoText(request.cf?.country, 2).toUpperCase()
+  if (/^[A-Z]{2}$/.test(cfCountry)) return cfCountry
+  if (String(env.TRUST_GEO_HEADERS || '').toLowerCase() !== 'true') return ''
+  return safeGeoText(
+    request.headers.get('x-geo-country') || request.headers.get('cf-ipcountry'),
+    2,
+  ).toUpperCase()
+}
+
+async function createMainlandGeoAssertion(request, env, cors) {
+  const secret = geoAssertionSecret(env)
+  if (secret.length < 32) throw httpError(503, 'Mainland geo assertions are not configured.')
+  const body = await readJson(request)
+  const nonce = requiredText(body.nonce, 'nonce', 16, 128)
+  if (trustedCountryCode(request, env) !== 'CN') {
+    return json({ mainland: false }, 200, cors)
+  }
+
+  const geo = normalizedGeo(request)
+  if (geo.countryCode !== 'CN') return json({ mainland: false }, 200, cors)
+  const issuedAt = Math.floor(Date.now() / 1000)
+  const expiresAt = issuedAt + GEO_ASSERTION_TTL_SECONDS
+  const payload = {
+    version: 1,
+    issuedAt,
+    expiresAt,
+    nonce,
+    countryCode: 'CN',
+    provinceCode: geo.provinceCode,
+    provinceName: geo.provinceName,
+    cityName: geo.cityName,
+  }
+  const encoded = base64Url(new TextEncoder().encode(JSON.stringify(payload)))
+  const assertion = `${encoded}.${await sign(secret, encoded)}`
+  return json({
+    mainland: true,
+    assertion,
+    expiresAt,
+    context: publicGeoContext({ ...geo, source: 'mainland-direct' }, body.locale),
+  }, 200, cors)
+}
+
+async function preferredGeo(request, env, assertion) {
+  const fallback = { ...normalizedGeo(request), source: 'edge' }
+  const token = String(assertion || '')
+  if (!token || token.length > 2048) return fallback
+  const secret = geoAssertionSecret(env)
+  if (secret.length < 32) return fallback
+  const [encoded, signature, extra] = token.split('.')
+  if (!encoded || !signature || extra) return fallback
+  if (!await verify(secret, encoded, signature)) return fallback
+
+  let payload
+  try {
+    payload = JSON.parse(new TextDecoder().decode(fromBase64Url(encoded)))
+  } catch {
+    return fallback
+  }
+  const now = Math.floor(Date.now() / 1000)
+  if (
+    payload.version !== 1 ||
+    payload.countryCode !== 'CN' ||
+    !Number.isInteger(payload.issuedAt) ||
+    !Number.isInteger(payload.expiresAt) ||
+    payload.issuedAt > now + GEO_ASSERTION_MAX_CLOCK_SKEW_SECONDS ||
+    payload.expiresAt <= now ||
+    payload.expiresAt > payload.issuedAt + GEO_ASSERTION_TTL_SECONDS ||
+    typeof payload.nonce !== 'string' ||
+    payload.nonce.length < 16 ||
+    payload.nonce.length > 128
+  ) return fallback
+
+  const provinceCode = safeGeoText(payload.provinceCode, 12).toUpperCase() || null
+  const provinceName = safeGeoText(payload.provinceName, 80) || null
+  const specialProvinceCode = SPECIAL_CHINA_REGION_CODES[provinceName]
+  if (specialProvinceCode || ['HK', 'MO', 'TW'].includes(provinceCode)) return fallback
+  return {
+    countryCode: 'CN',
+    provinceCode,
+    provinceName,
+    cityName: normalizeChinaCity(payload.cityName),
+    source: 'mainland-direct',
+  }
+}
+
 async function getLeaderboard(request, env, url, cors) {
   const input = request.method === 'POST' ? await readJson(request) : Object.fromEntries(url.searchParams)
   const period = input.period === 'all' ? 'all' : 'day'
@@ -152,7 +249,7 @@ async function getLeaderboard(request, env, url, cors) {
     ? requiredText(input.installationId, 'installationId', 16, 128)
     : ''
   const today = new Date().toISOString().slice(0, 10)
-  const geo = normalizedGeo(request)
+  const geo = await preferredGeo(request, env, input.geoAssertion)
   const requestedScope = ['country', 'province', 'city'].includes(input.scope)
     ? input.scope
     : 'global'
@@ -264,7 +361,7 @@ async function getLeaderboardProfile(request, env, cors) {
   const installationId = requiredText(body.installationId, 'installationId', 16, 128)
   const profileHash = await digestIdentity(env.LEADERBOARD_HMAC_SECRET, `profile:${installationId}`)
   const profile = await getOrCreateLeaderboardProfile(env, profileHash)
-  const geo = normalizedGeo(request)
+  const geo = await preferredGeo(request, env, body.geoAssertion)
   const context = publicGeoContext(geo, body.locale)
   const ranks = []
 
@@ -301,7 +398,7 @@ async function createSession(request, env, cors) {
     || request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
     || 'local'
   const ipHash = await digestIdentity(env.LEADERBOARD_HMAC_SECRET, `ip:${ip}`)
-  const geo = normalizedGeo(request)
+  const geo = await preferredGeo(request, env, body.geoAssertion)
 
   const rate = await env.TOKEN_KILLER_DB.prepare(
     `SELECT COUNT(*) AS count
@@ -529,6 +626,7 @@ function publicGeoContext(geo, locale = 'zh-CN') {
   }
 
   return {
+    source: geo.source || 'edge',
     countryCode: geo.countryCode,
     countryName,
     provinceCode: geo.provinceCode,
@@ -556,7 +654,7 @@ function safeGeoText(value, maxLength) {
     .slice(0, maxLength)
 }
 
-export { normalizedGeo, publicGeoContext }
+export { normalizedGeo, preferredGeo, publicGeoContext }
 
 function requireConfiguration(env) {
   if (!env.TOKEN_KILLER_DB || String(env.LEADERBOARD_HMAC_SECRET || '').length < 32) {

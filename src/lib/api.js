@@ -23,6 +23,72 @@ function extractError(payload, fallback) {
 }
 
 const SUBSCRIPTION_PROVIDERS = ['chatgpt', 'claude_subscription', 'gemini_subscription', 'grok_subscription']
+const subscriptionRefreshLocks = new Map()
+
+export class RequestOutcomeUnknownError extends Error {
+  constructor(message, cause) {
+    super(message, { cause })
+    this.name = 'RequestOutcomeUnknownError'
+    this.outcomeUnknown = true
+  }
+}
+
+async function fetchInference(url, options, timeoutSeconds) {
+  const externalSignal = options.signal
+  const controller = new AbortController()
+  const timeoutMs = Math.max(0, Number(timeoutSeconds) || 0) * 1000
+  let timedOut = false
+  const forwardAbort = () => controller.abort(externalSignal?.reason)
+  if (externalSignal?.aborted) forwardAbort()
+  else externalSignal?.addEventListener('abort', forwardAbort, { once: true })
+  const timeout = timeoutMs
+    ? globalThis.setTimeout(() => {
+        timedOut = true
+        controller.abort(new DOMException('Request timed out', 'TimeoutError'))
+      }, timeoutMs)
+    : 0
+
+  try {
+    return await fetch(url, { ...options, signal: controller.signal })
+  } catch (error) {
+    if (externalSignal?.aborted) throw error
+    if (timedOut) {
+      throw new RequestOutcomeUnknownError('请求超时；上游可能已经收到请求，本轮不会自动重试。', error)
+    }
+    if (error?.providerBlock) throw error
+    throw new RequestOutcomeUnknownError(
+      `网络连接中断；无法确认上游是否已经处理，本轮不会自动重试。${error?.message ? ` ${error.message}` : ''}`,
+      error,
+    )
+  } finally {
+    if (timeout) globalThis.clearTimeout(timeout)
+    externalSignal?.removeEventListener('abort', forwardAbort)
+  }
+}
+
+function createInferenceDeadline(externalSignal, timeoutSeconds) {
+  const controller = new AbortController()
+  const timeoutMs = Math.max(0, Number(timeoutSeconds) || 0) * 1000
+  let timedOut = false
+  const forwardAbort = () => controller.abort(externalSignal?.reason)
+  if (externalSignal?.aborted) forwardAbort()
+  else externalSignal?.addEventListener('abort', forwardAbort, { once: true })
+  const timeout = timeoutMs
+    ? globalThis.setTimeout(() => {
+        timedOut = true
+        controller.abort(new DOMException('Request timed out', 'TimeoutError'))
+      }, timeoutMs)
+    : 0
+
+  return {
+    signal: controller.signal,
+    didTimeOut: () => timedOut,
+    dispose() {
+      if (timeout) globalThis.clearTimeout(timeout)
+      externalSignal?.removeEventListener('abort', forwardAbort)
+    },
+  }
+}
 
 function directFormat(settings) {
   if (settings.apiFormat) return settings.apiFormat
@@ -367,14 +433,20 @@ async function resolveSubscriptionAccount(settings) {
   if (account.provider !== expectedProvider) throw new Error('所选订阅账号与当前供应商不匹配')
   if (Number(account.credential.expiresAt || 0) > Date.now() + 60_000) return account
 
-  const refreshed = await refreshSubscriptionCredential(
-    settings.subscriptionApiUrl,
-    account.provider,
-    account.credential,
-  )
-  const credential = { ...account.credential, ...refreshed.credential }
-  const saved = await saveLocalAccount({ ...account, credential })
-  return { ...saved, credential }
+  const lockKey = account.id
+  if (!subscriptionRefreshLocks.has(lockKey)) {
+    subscriptionRefreshLocks.set(lockKey, (async () => {
+      const refreshed = await refreshSubscriptionCredential(
+        settings.subscriptionApiUrl,
+        account.provider,
+        account.credential,
+      )
+      const credential = { ...account.credential, ...refreshed.credential }
+      const saved = await saveLocalAccount({ ...account, credential })
+      return { ...saved, credential }
+    })().finally(() => subscriptionRefreshLocks.delete(lockKey)))
+  }
+  return subscriptionRefreshLocks.get(lockKey)
 }
 
 export function buildSubscriptionPayload(settings, credential, prompt, maxOutput) {
@@ -407,15 +479,16 @@ async function callSubscription(settings, prompt, maxOutput, signal, onChunk) {
   let response
   try {
     assertProviderAvailable(settings)
-    response = await fetch(`${base}${routes[account.provider]}`, {
+    response = await fetchInference(`${base}${routes[account.provider]}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(buildSubscriptionPayload(settings, account.credential, prompt, maxOutput)),
       signal,
-    })
+    }, 0)
   } catch (error) {
     if (error.name === 'AbortError') throw error
     if (error.providerBlock) throw error
+    if (error.outcomeUnknown) throw error
     throw new Error(`订阅代理连接失败。${error.message ? ` ${error.message}` : ''}`)
   }
 
@@ -596,7 +669,7 @@ async function readAnthropicStream(response, inputEstimate, onChunk) {
   }
 }
 
-export async function callProvider(settings, prompt, maxOutput, signal, onChunk) {
+async function callProviderOnce(settings, prompt, maxOutput, signal, onChunk) {
   assertProviderAvailable(settings)
   if (SUBSCRIPTION_PROVIDERS.includes(settings.provider)) {
     return callSubscription(settings, prompt, maxOutput, signal, onChunk)
@@ -615,15 +688,16 @@ export async function callProvider(settings, prompt, maxOutput, signal, onChunk)
   let response
   try {
     assertProviderAvailable(settings)
-    response = await fetch(request.endpoint || settings.endpoint, {
+    response = await fetchInference(request.endpoint || settings.endpoint, {
       method: 'POST',
       headers: request.headers,
       body: JSON.stringify(request.body),
       signal,
-    })
+    }, 0)
   } catch (error) {
     if (error.name === 'AbortError') throw error
     if (error.providerBlock) throw error
+    if (error.outcomeUnknown) throw error
     throw new Error(`网络请求失败，请检查请求地址和连接设置。${error.message ? ` ${error.message}` : ''}`)
   }
 
@@ -684,6 +758,20 @@ export async function callProvider(settings, prompt, maxOutput, signal, onChunk)
   return {
     ...result,
     requestId: response.headers.get('x-request-id') || response.headers.get('request-id') || '',
+  }
+}
+
+export async function callProvider(settings, prompt, maxOutput, signal, onChunk) {
+  const deadline = createInferenceDeadline(signal, settings.requestTimeoutSeconds)
+  try {
+    return await callProviderOnce(settings, prompt, maxOutput, deadline.signal, onChunk)
+  } catch (error) {
+    if (deadline.didTimeOut()) {
+      throw new RequestOutcomeUnknownError('请求超时；上游可能已经收到请求，本轮不会自动重试。', error)
+    }
+    throw error
+  } finally {
+    deadline.dispose()
   }
 }
 

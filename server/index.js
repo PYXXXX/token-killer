@@ -20,9 +20,11 @@ const database = new SQLiteD1Database(
 const env = {
   TOKEN_KILLER_DB: database,
   LEADERBOARD_HMAC_SECRET: secretEnvironment('LEADERBOARD_HMAC_SECRET'),
+  GEO_ASSERTION_HMAC_SECRET: secretEnvironment('GEO_ASSERTION_HMAC_SECRET'),
   GEMINI_OAUTH_CLIENT_ID: secretEnvironment('GEMINI_OAUTH_CLIENT_ID'),
   GEMINI_OAUTH_CLIENT_SECRET: secretEnvironment('GEMINI_OAUTH_CLIENT_SECRET'),
   ALLOWED_ORIGINS: process.env.ALLOWED_ORIGINS || '',
+  TRUST_GEO_HEADERS: process.env.TRUST_GEO_HEADERS || '',
   STORAGE_KIND: 'sqlite',
 }
 

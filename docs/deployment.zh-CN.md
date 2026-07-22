@@ -193,6 +193,59 @@ https://token-killer.你的账号.workers.dev
 
 填写 OAuth 授权服务后，先点击“检测服务”。只有 Worker 健康检查通过，并且返回对应平台可用时，ChatGPT、Claude、Gemini、Grok 的登录按钮才会启用。未配置 Gemini Client ID 与 Client Secret 时，其他入口仍可使用，Gemini 按钮会保持不可用。
 
+## 可选：优先识别大陆直连地区
+
+中国大陆用户经常使用规则代理：访问海外地址时走代理，访问大陆地址时保持直连。如果排行榜部署在境外，它看到的可能是代理出口，而不是用户实际所在的大陆省市。
+
+Token Killer 可以先向一个大陆可直连地址申请短时签名地区凭证，再访问排行榜。只有签名有效且国家为 `CN` 的凭证才会优先使用；探测超时、返回非大陆、签名无效时都会静默回退到排行榜边缘节点的定位。香港特别行政区、澳门特别行政区和台湾省仍归入“中国”目录下的省级地区，不会被当作“大陆直连”结果。
+
+这个接口完全可选，只用于排行榜地区识别。它不会收到 API Key、OAuth 凭据、安装编号、Prompt、模型响应或任何推理请求。
+
+### 1. 在大陆可直连的 HTTPS 域名部署探测服务
+
+仓库内的 Worker/Node API 已提供 `POST /api/geo/assertion`。要利用规则代理的分流特性，这个域名必须能被用户直接访问；如果它与境外排行榜走完全相同的网络路径，就无法改善定位结果。
+
+探测服务需要可信的国家、省和城市信息。Cloudflare 会通过 `request.cf` 提供；自托管 Node 服务也可以接收可信 CDN、负载均衡器或带 GeoIP 能力的反向代理注入的 Header。此时设置：
+
+```env
+TRUST_GEO_HEADERS=true
+```
+
+并由反向代理写入：
+
+```text
+X-Geo-Country: CN
+X-Geo-Region-Code: ZJ
+X-Geo-Region: Zhejiang
+X-Geo-City: Hangzhou
+```
+
+如果服务直接从公网接受这些 Header，绝对不要开启 `TRUST_GEO_HEADERS`。可信反向代理必须先删除访客自行携带的 `X-Geo-*` 和 `CF-IPCountry`，再写入经过识别的值。只有国家信息时仍可匹配中国全国榜；省市榜需要相应字段。
+
+### 2. 在探测服务和排行榜之间共享专用签名密钥
+
+两端配置同一个密钥：
+
+```bash
+npx wrangler secret put GEO_ASSERTION_HMAC_SECRET
+```
+
+使用 VPS 部署时，把密钥放在 `/opt/token-killer/secrets/geo_assertion_hmac_secret`，并使用示例中的 `GEO_ASSERTION_HMAC_SECRET_FILE`。密钥至少 32 个随机字符，只能留在服务端，不能写成前端可见的 `VITE_*` 变量。单体部署会在未配置时回退使用 `LEADERBOARD_HMAC_SECRET`，但分离部署更建议使用独立密钥。
+
+探测服务的 `ALLOWED_ORIGINS` 还需要包含前端 Origin。GitHub Pages 使用 HTTPS，因此探测地址也必须是 HTTPS，否则浏览器会按混合内容拦截。
+
+### 3. 让前端使用探测服务
+
+用户可以在 **配置 → 大陆地区探测地址** 中填写探测服务的基础地址。若希望自己的 GitHub Pages Fork 默认使用该地址，进入仓库 **Settings → Secrets and variables → Actions → Variables**，添加：
+
+```text
+VITE_MAINLAND_GEO_API_URL=https://geo.example.cn
+```
+
+随后推送到 `main`，或重新运行 **Deploy to GitHub Pages**。工作流只会把这个公开 URL 注入前端构建，签名密钥绝不会进入前端。自行本地构建或部署 Cloudflare 时，也可以在构建前设置 `VITE_MAINLAND_GEO_API_URL`。
+
+地区凭证十分钟后失效，并会在浏览器中短暂缓存。凭证只含规范化后的地区、时间和随机 nonce，不含原始 IP；但探测服务的网络基础设施在响应请求时必然能够看到来源 IP，请按自己的隐私策略审查或关闭访问日志。
+
 ## Provider 停用与部署的关系
 
 Provider 黑名单保存在访问者自己的浏览器中，不需要 D1，也不依赖排行榜服务。静态 GitHub Pages 和完整 Worker 部署都会使用相同的本地停用逻辑。

@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { estimateUsageCost, resolvePrice } from '../src/lib/catalog.js'
+import { createPricingSnapshot, estimateUsageCost, resolvePrice } from '../src/lib/catalog.js'
 
 test('OpenRouter pricing matches models selected through every OAuth provider', () => {
   const models = [
@@ -33,4 +33,23 @@ test('cost statistics always use matched reference prices instead of upstream us
 test('missing or invalid prices produce a safe zero estimate', () => {
   assert.equal(estimateUsageCost({ input: 10, output: 20, cost: 8 }, null), 0)
   assert.equal(estimateUsageCost({ input: -10, output: 20 }, { input: -1, output: 0.5 }), 10)
+})
+
+test('pricing snapshots preserve the exact model match and rates used by a run', () => {
+  const snapshot = createPricingSnapshot('gpt-5.6-sol', {
+    matchedModel: 'openai/gpt-5.6-sol',
+    input: 0.000002,
+    output: 0.000008,
+    source: 'OpenRouter 实时目录',
+  }, 1_725_000_000_000, 1_725_000_001_000)
+
+  assert.deepEqual(snapshot, {
+    currency: 'USD',
+    source: 'OpenRouter 实时目录',
+    matchedModel: 'openai/gpt-5.6-sol',
+    inputPerMillion: 2,
+    outputPerMillion: 8,
+    catalogUpdatedAt: 1_725_000_000_000,
+    estimatedAt: 1_725_000_001_000,
+  })
 })

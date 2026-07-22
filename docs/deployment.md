@@ -193,6 +193,59 @@ https://token-killer.your-account.workers.dev
 
 After entering the OAuth service, click **Check service**. Login buttons for ChatGPT, Claude, Gemini, and Grok are enabled only after the health check succeeds and reports that provider as available. If Gemini client credentials are missing, the other providers remain available while Gemini stays disabled.
 
+## Optional: prefer a mainland-direct region lookup
+
+A visitor in mainland China may browse through a rules-based proxy: overseas destinations use the proxy, while a mainland destination is reached directly. If the leaderboard runs overseas, its edge location may therefore see the proxy exit instead of the visitor's mainland province and city.
+
+Token Killer can ask a separate mainland-accessible endpoint for a short-lived signed location assertion before contacting the leaderboard. A valid assertion that says `CN` takes priority. If the probe times out, returns a non-mainland result, or fails signature validation, the leaderboard quietly falls back to its own edge location. Hong Kong SAR, Macao SAR, and Taiwan Province remain under China's province-level directory and are never treated as a mainland-direct match.
+
+This endpoint is optional and is used only for leaderboard location. It never receives an API key, OAuth credential, installation ID, prompt, model response, or inference request.
+
+### 1. Deploy the probe on a mainland-accessible HTTPS origin
+
+The included Worker/Node API exposes `POST /api/geo/assertion`. For this routing pattern to help, its hostname must be reached directly under the visitor's proxy rules. Hosting it on the same overseas route as the leaderboard gives no location advantage.
+
+The service needs trusted country, province, and city metadata. Cloudflare supplies this through `request.cf`. A self-hosted Node service can instead accept geo headers from a trusted CDN, load balancer, or GeoIP-aware reverse proxy. Set:
+
+```env
+TRUST_GEO_HEADERS=true
+```
+
+and have the proxy inject:
+
+```text
+X-Geo-Country: CN
+X-Geo-Region-Code: ZJ
+X-Geo-Region: Zhejiang
+X-Geo-City: Hangzhou
+```
+
+Do not enable `TRUST_GEO_HEADERS` on a server that accepts those headers directly from the public internet. The reverse proxy must remove incoming `X-Geo-*` and `CF-IPCountry` values before adding its own verified values. Country-only metadata still selects China's national ranking; province and city require those fields to be supplied.
+
+### 2. Share a dedicated signing secret
+
+Configure the same secret on the mainland probe and the leaderboard service:
+
+```bash
+npx wrangler secret put GEO_ASSERTION_HMAC_SECRET
+```
+
+For the VPS deployment, place the value in `/opt/token-killer/secrets/geo_assertion_hmac_secret` and use the provided `GEO_ASSERTION_HMAC_SECRET_FILE` setting. Use at least 32 random characters, keep it server-side, and do not reuse a browser-visible `VITE_*` value. A single combined deployment can fall back to `LEADERBOARD_HMAC_SECRET`, but a separate dedicated secret is recommended.
+
+Add the frontend origin to the probe's `ALLOWED_ORIGINS`. GitHub Pages is HTTPS, so the probe must also use HTTPS or the browser will block it as mixed content.
+
+### 3. Point the frontend at the probe
+
+Visitors can enter the probe's base URL under **Settings → Mainland geo probe URL**. To provide a default in a GitHub Pages fork, open **Settings → Secrets and variables → Actions → Variables** and create:
+
+```text
+VITE_MAINLAND_GEO_API_URL=https://geo.example.cn
+```
+
+Push to `main` or rerun **Deploy to GitHub Pages**. The workflow exposes this public URL only at build time; the signing secret is never part of the frontend build. You can also set `VITE_MAINLAND_GEO_API_URL` before a local or Cloudflare build.
+
+Assertions expire after ten minutes and are cached briefly in the browser. They carry normalized location fields, timestamps, and a random nonce. They do not carry the raw IP address, although the probe's infrastructure can necessarily observe the source IP while serving the request. Review or disable proxy access logs according to your privacy policy.
+
 ## Provider blocking and deployment
 
 The provider blocklist lives in each visitor's browser. It requires neither D1 nor the leaderboard service, and works the same way on static GitHub Pages and a complete Worker deployment.

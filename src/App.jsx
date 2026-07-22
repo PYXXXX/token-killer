@@ -19,6 +19,7 @@ import {
   ListChecks,
   Moon,
   MapPin,
+  Pause,
   Play,
   ShieldCheck,
   SlidersHorizontal,
@@ -48,6 +49,7 @@ import {
   loadOpenRouterModels,
   PROMPT_PRESETS,
   PROVIDERS,
+  createPricingSnapshot,
   estimateUsageCost,
   resolvePrice,
   SUBSCRIPTION_MODELS,
@@ -59,15 +61,17 @@ import { RANK_TIERS, rankForTokens } from './lib/ranks.js'
 import {
   clearLocalData,
   clearProviderBlocklist,
+  clearRunCheckpoint,
   exportLocalData,
   getParticipantLabel,
   hasOnboarded,
   isProviderBlocked,
   markOnboarded,
   readProviderBlocklist,
-  readRuns,
+  recoverInterruptedRun,
   readSettings,
   unblockProvider,
+  writeRunCheckpoint,
   writeRuns,
   writeSettings,
 } from './lib/storage.js'
@@ -126,11 +130,17 @@ const DEFAULT_SETTINGS = {
   customPrompt: '',
   publishToLeaderboard: true,
   leaderboardApiUrl: '',
+  mainlandGeoApiUrl: import.meta.env.VITE_MAINLAND_GEO_API_URL || '',
   subscriptionApiUrl: '',
   selectedAccountId: '',
   theme: 'system',
   inputPricePerMillion: '',
   outputPricePerMillion: '',
+  requestTimeoutSeconds: 300,
+  maxRounds: 10000,
+  maxDurationMinutes: 0,
+  pauseWhenHidden: true,
+  keepAwake: false,
 }
 
 const INITIAL_SESSION = {
@@ -323,14 +333,14 @@ function ProviderFields({
   )
 }
 
-function BurnPanel({ settings, updateSettings, catalogState, session, onStart, onStop, price, accounts }) {
+function BurnPanel({ settings, updateSettings, catalogState, session, onStart, onPause, onResume, onStop, price, accounts }) {
   const preset = PROMPT_PRESETS.find((item) => item.id === settings.promptId) || PROMPT_PRESETS[0]
   const target = settings.targetMode === 'tokens' ? Number(settings.targetTokens) : Number(settings.targetAmount)
   const consumed = settings.targetMode === 'tokens' ? session.tokens : session.cost
   const progress = percent(consumed, target)
   const prompt = settings.promptId === 'custom' ? settings.customPrompt : preset.prompt
   const promptReserve = guardedPromptEstimate(settings.systemPrompt, prompt)
-  const running = session.status === 'running' || session.status === 'stopping'
+  const active = ['running', 'pausing', 'paused', 'stopping'].includes(session.status)
   const isSubscription = isSubscriptionProvider(settings.provider)
   const selectedAccount = accounts.find((account) => account.id === settings.selectedAccountId)
   const canStart = Boolean(
@@ -461,7 +471,7 @@ function BurnPanel({ settings, updateSettings, catalogState, session, onStart, o
           <div className={`run-console status-${session.status}`}>
             <div className="run-topline">
               <span className="run-status">
-                {running ? <span className="live-mark" /> : null}
+                {active ? <span className="live-mark" /> : null}
                 {session.message}
               </span>
               <span>{session.rounds} 轮</span>
@@ -509,18 +519,31 @@ function BurnPanel({ settings, updateSettings, catalogState, session, onStart, o
               </div>
             )}
 
-            {running ? (
-              <button className="stop-button" type="button" onClick={onStop}>
-                <Stop size={19} weight="fill" />
-                立即停止
-              </button>
+            {active ? (
+              <div className="run-actions">
+                {session.status === 'paused' ? (
+                  <button className="start-button" type="button" onClick={onResume}>
+                    <Play size={19} weight="fill" />
+                    继续
+                  </button>
+                ) : (
+                  <button className="pause-button" type="button" disabled={session.status !== 'running'} onClick={onPause}>
+                    <Pause size={19} weight="fill" />
+                    {session.status === 'pausing' ? '等待本轮结束' : '安全暂停'}
+                  </button>
+                )}
+                <button className="stop-button" type="button" onClick={onStop}>
+                  <Stop size={19} weight="fill" />
+                  立即停止
+                </button>
+              </div>
             ) : (
               <button className="start-button" type="button" disabled={!canStart} onClick={onStart}>
                 <Play size={19} weight="fill" />
                 开始消耗
               </button>
             )}
-            {!canStart && !running ? <small className="button-hint">{isSubscription ? '请先在配置中连接并选择对应的订阅账号' : '请补齐 API、模型、密钥和请求内容'}</small> : null}
+            {!canStart && !active ? <small className="button-hint">{isSubscription ? '请先在配置中连接并选择对应的订阅账号' : '请补齐 API、模型、密钥和请求内容'}</small> : null}
           </div>
 
           <div className="guard-note">
@@ -605,7 +628,7 @@ function StatsPanel({ runs, settings, leaderboardVersion, participantLabel }) {
   useEffect(() => {
     let active = true
     setGlobalBoard((current) => ({ ...current, status: 'loading', error: '' }))
-    getLeaderboard(settings.leaderboardApiUrl, boardPeriod, boardScope, boardPage)
+    getLeaderboard(settings.leaderboardApiUrl, boardPeriod, boardScope, boardPage, 'zh-CN', settings.mainlandGeoApiUrl)
       .then((payload) => {
         if (active) {
           const pageCount = Math.max(1, Number(payload.pageCount) || 1)
@@ -644,12 +667,12 @@ function StatsPanel({ runs, settings, leaderboardVersion, participantLabel }) {
     return () => {
       active = false
     }
-  }, [settings.leaderboardApiUrl, boardPeriod, boardScope, boardPage, boardRefresh, leaderboardVersion])
+  }, [settings.leaderboardApiUrl, settings.mainlandGeoApiUrl, boardPeriod, boardScope, boardPage, boardRefresh, leaderboardVersion])
 
   useEffect(() => {
     let active = true
     setRankProfile((current) => ({ ...current, status: 'loading', error: '' }))
-    getLeaderboardProfile(settings.leaderboardApiUrl)
+    getLeaderboardProfile(settings.leaderboardApiUrl, 'zh-CN', settings.mainlandGeoApiUrl)
       .then((data) => {
         if (active) setRankProfile({ status: 'ready', data, error: '' })
       })
@@ -659,7 +682,7 @@ function StatsPanel({ runs, settings, leaderboardVersion, participantLabel }) {
     return () => {
       active = false
     }
-  }, [settings.leaderboardApiUrl, boardRefresh, leaderboardVersion])
+  }, [settings.leaderboardApiUrl, settings.mainlandGeoApiUrl, boardRefresh, leaderboardVersion])
 
   const profileData = rankProfile.status === 'ready' ? rankProfile.data : null
   const currentTier = profileData?.tier || rankForTokens(totalTokens)
@@ -680,6 +703,7 @@ function StatsPanel({ runs, settings, leaderboardVersion, participantLabel }) {
   const rankScopes = profileData?.ranks || scopeOptions.map((scope) => ({ ...scope, rank: null, tokens: 0 }))
   const globalRank = rankScopes.find((item) => item.scope === 'global')?.rank || null
   const rankDirectory = profileData?.context?.directory || globalBoard.context?.directory || []
+  const rankGeoSource = profileData?.context?.source || globalBoard.context?.source || 'edge'
   const deploymentUrl = new URL('.', window.location.href).href.replace(/\/$/, '')
   const rankingPhrase = globalRank ? `我位列全球第 ${globalRank} 名` : '我正在冲击全球排行榜'
   const currentEntryOnPage = globalBoard.entries.some((entry) => entry.isCurrent)
@@ -779,7 +803,10 @@ function StatsPanel({ runs, settings, leaderboardVersion, participantLabel }) {
         <div className="rank-regions">
           <div className="rank-region-head">
             <div><MapPin size={18} /><span>当前赛区</span></div>
-            <strong>{rankDirectory.length ? rankDirectory.join(' / ') : '等待地区榜'}</strong>
+            <strong>
+              <span>{rankDirectory.length ? rankDirectory.join(' / ') : '等待地区榜'}</span>
+              {rankDirectory.length && rankGeoSource === 'mainland-direct' ? <small>大陆直连识别</small> : null}
+            </strong>
           </div>
           <div className="rank-scope-grid">
             {rankScopes.map((item) => (
@@ -938,7 +965,7 @@ function StatsPanel({ runs, settings, leaderboardVersion, participantLabel }) {
                 <div className="run-row" key={run.id}>
                   <div>
                     <strong>{run.model}</strong>
-                    <span>{new Date(run.startedAt).toLocaleString('zh-CN')}</span>
+                    <span>{new Date(run.startedAt).toLocaleString('zh-CN')}{run.pricing?.matchedModel ? ` · ${run.pricing.matchedModel}` : ''}</span>
                   </div>
                   <div>
                     <strong>{formatTokens(run.tokens)}</strong>
@@ -946,7 +973,7 @@ function StatsPanel({ runs, settings, leaderboardVersion, participantLabel }) {
                   </div>
                   <div>
                     <strong>{formatMoney(run.cost)}</strong>
-                    <span>{formatDuration(run.duration)}</span>
+                    <span title={run.pricing?.source || ''}>{formatDuration(run.duration)}{run.pricing?.source ? ` · ${run.pricing.source}` : ''}</span>
                   </div>
                 </div>
               ))}
@@ -1349,15 +1376,13 @@ function SettingsPanel({
           refreshAvailableModels={refreshAvailableModels}
           accounts={accountsState.accounts}
         />
-        {!isSubscriptionProvider(settings.provider) ? (
-          <div className="catalog-line">
-            <span className={`catalog-status ${catalogState}`}>{catalogState === 'ready' ? 'OpenRouter 价格目录已更新' : catalogState === 'error' ? 'OpenRouter 价格目录不可用' : '正在更新 OpenRouter 价格目录'}</span>
-            <button className="text-button" type="button" onClick={refreshCatalog}>
-              <ArrowClockwise size={16} />
-              刷新价格
-            </button>
-          </div>
-        ) : null}
+        <div className="catalog-line">
+          <span className={`catalog-status ${catalogState}`}>{catalogState === 'ready' ? 'OpenRouter 价格目录已更新' : catalogState === 'error' ? 'OpenRouter 价格目录不可用' : '正在更新 OpenRouter 价格目录'}</span>
+          <button className="text-button" type="button" onClick={refreshCatalog}>
+            <ArrowClockwise size={16} />
+            刷新价格
+          </button>
+        </div>
       </section>
 
       <section className="settings-section section-block subscription-section">
@@ -1420,6 +1445,33 @@ function SettingsPanel({
         <div className="form-grid">
           <Field label="单轮最大输出" hint={isSubscriptionProvider(settings.provider) ? '订阅接口会尽可能使用该上限；ChatGPT Codex 仍属于提示级软限制。' : '越小越接近目标，但输入 token 和请求次数会更多。'}>
             <input type="number" min="1" max="65536" value={settings.batchSize} onChange={(event) => updateSettings({ batchSize: event.target.value })} />
+          </Field>
+          <Field label="请求超时" hint="超时后不会自动重试；0 表示不限时。">
+            <div className="input-with-unit">
+              <input type="number" min="0" max="3600" value={settings.requestTimeoutSeconds} onChange={(event) => updateSettings({ requestTimeoutSeconds: event.target.value })} />
+              <span>秒</span>
+            </div>
+          </Field>
+          <Field label="最多轮数" hint="达到限制后保留已完成统计；0 表示不限。">
+            <input type="number" min="0" max="100000" value={settings.maxRounds} onChange={(event) => updateSettings({ maxRounds: event.target.value })} />
+          </Field>
+          <Field label="最长运行" hint="仅在两轮之间检查；0 表示不限。">
+            <div className="input-with-unit">
+              <input type="number" min="0" max="10080" value={settings.maxDurationMinutes} onChange={(event) => updateSettings({ maxDurationMinutes: event.target.value })} />
+              <span>分钟</span>
+            </div>
+          </Field>
+          <Field label="离开页面时">
+            <label className="toggle-line">
+              <input type="checkbox" checked={settings.pauseWhenHidden} onChange={(event) => updateSettings({ pauseWhenHidden: event.target.checked })} />
+              <span>本轮结束后安全暂停</span>
+            </label>
+          </Field>
+          <Field label="运行期间">
+            <label className="toggle-line">
+              <input type="checkbox" checked={settings.keepAwake} onChange={(event) => updateSettings({ keepAwake: event.target.checked })} />
+              <span>允许时保持屏幕唤醒</span>
+            </label>
           </Field>
           {!isSubscriptionProvider(settings.provider) && ['openai', 'openai-completions'].includes(settings.apiFormat) ? (
             <Field label="Token 参数">
@@ -1508,6 +1560,9 @@ function SettingsPanel({
           </Field>
           <Field label="排行榜服务地址" hint="同域部署可留空；分开部署时填写服务 URL。">
             <input type="url" value={settings.leaderboardApiUrl} spellCheck="false" onChange={(event) => updateSettings({ leaderboardApiUrl: event.target.value })} placeholder="同域 /api" />
+          </Field>
+          <Field label="大陆地区探测地址" hint="可选。大陆用户优先直连探测；失败或非大陆时回退排行榜节点识别。">
+            <input type="url" value={settings.mainlandGeoApiUrl} spellCheck="false" onChange={(event) => updateSettings({ mainlandGeoApiUrl: event.target.value })} placeholder="https://geo.example.cn" />
           </Field>
           <Field label="公开汇总" hint="公开 token、费用、轮数、模型和时长。">
             <label className="toggle-line">
@@ -1611,9 +1666,10 @@ function Onboarding({ settings, updateSettings, models, availableModels, modelLi
 export default function App() {
   const [activePanel, setActivePanel] = useState('burn')
   const [settings, setSettings] = useState(() => readSettings(DEFAULT_SETTINGS))
-  const [runs, setRuns] = useState(() => readRuns())
+  const [runs, setRuns] = useState(() => recoverInterruptedRun())
   const [models, setModels] = useState([])
   const [catalogState, setCatalogState] = useState('loading')
+  const [catalogUpdatedAt, setCatalogUpdatedAt] = useState(0)
   const [availableModels, setAvailableModels] = useState([])
   const [modelListState, setModelListState] = useState({ status: 'idle', count: 0, endpoint: '', error: '' })
   const [session, setSession] = useState(INITIAL_SESSION)
@@ -1623,6 +1679,8 @@ export default function App() {
   const [showOnboarding, setShowOnboarding] = useState(() => !hasOnboarded())
   const [participantLabel, setParticipantLabel] = useState(() => getParticipantLabel())
   const abortRef = useRef(null)
+  const pauseRef = useRef({ requested: false, resume: null, reason: '' })
+  const wakeLockRef = useRef(null)
   const modelListAbortRef = useRef(null)
   const apiKeyStateRef = useRef({ provider: '', ready: false, request: 0 })
   const apiKeySaveTimerRef = useRef(null)
@@ -1653,6 +1711,7 @@ export default function App() {
       input: hasInputOverride ? Number(settings.inputPricePerMillion) / 1_000_000 : automatic.input,
       output: hasOutputOverride ? Number(settings.outputPricePerMillion) / 1_000_000 : automatic.output,
       source: '手动价格覆盖',
+      matchedModel: automatic.matchedModel || settings.model,
     }
   }, [settings.model, settings.inputPricePerMillion, settings.outputPricePerMillion, models])
   const isDark = settings.theme === 'dark' || (settings.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
@@ -1663,6 +1722,7 @@ export default function App() {
     try {
       const catalog = await loadOpenRouterModels(controller.signal)
       setModels(catalog)
+      setCatalogUpdatedAt(Date.now())
       setCatalogState('ready')
     } catch {
       setCatalogState('error')
@@ -1762,13 +1822,76 @@ export default function App() {
   }, [settings])
 
   const saveRun = (data) => {
-    const nextRuns = [data, ...runs].slice(0, 500)
-    setRuns(nextRuns)
+    const nextRuns = [data, ...runs.filter((run) => run.id !== data.id)].slice(0, 500)
     writeRuns(nextRuns)
+    setRuns(nextRuns)
   }
 
+  const requestPause = useCallback((reason = '已请求暂停，等待本轮结束') => {
+    if (!abortRef.current || pauseRef.current.requested) return
+    pauseRef.current.requested = true
+    pauseRef.current.reason = reason
+    setSession((current) => current.status === 'running'
+      ? { ...current, status: 'pausing', message: reason }
+      : current)
+  }, [])
+
+  const resumeRun = useCallback(() => {
+    pauseRef.current.requested = false
+    pauseRef.current.reason = ''
+    const resume = pauseRef.current.resume
+    pauseRef.current.resume = null
+    setSession((current) => current.status === 'paused'
+      ? { ...current, status: 'running', message: `正在准备第 ${current.rounds + 1} 轮` }
+      : current)
+    resume?.()
+  }, [])
+
+  const releaseWakeLock = useCallback(async () => {
+    const lock = wakeLockRef.current
+    wakeLockRef.current = null
+    if (!lock || lock.released) return
+    try {
+      await lock.release()
+    } catch {
+      // Browsers may release the lock themselves when the page becomes hidden.
+    }
+  }, [])
+
+  const acquireWakeLock = useCallback(async () => {
+    if (!settings.keepAwake || document.visibilityState !== 'visible' || !navigator.wakeLock || wakeLockRef.current) return
+    try {
+      const lock = await navigator.wakeLock.request('screen')
+      wakeLockRef.current = lock
+      lock.addEventListener('release', () => {
+        if (wakeLockRef.current === lock) wakeLockRef.current = null
+      }, { once: true })
+    } catch {
+      // Wake Lock is optional; the run remains usable when the browser denies it.
+    }
+  }, [settings.keepAwake])
+
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        releaseWakeLock()
+        if (settings.pauseWhenHidden) requestPause('页面已转入后台，本轮结束后暂停')
+      } else if (abortRef.current && !pauseRef.current.requested) {
+        acquireWakeLock()
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => document.removeEventListener('visibilitychange', handleVisibility)
+  }, [acquireWakeLock, releaseWakeLock, requestPause, settings.pauseWhenHidden])
+
+  useEffect(() => () => {
+    abortRef.current?.abort()
+    pauseRef.current.resume?.()
+    releaseWakeLock()
+  }, [releaseWakeLock])
+
   const startRun = async () => {
-    if (session.status === 'running') return
+    if (['running', 'pausing', 'paused', 'stopping'].includes(session.status)) return
     if (isProviderBlocked(settings)) {
       setProviderBlocklist(readProviderBlocklist())
       setSession({ ...INITIAL_SESSION, status: 'blocked', endedAt: Date.now(), message: providerBlockedMessage() })
@@ -1778,9 +1901,15 @@ export default function App() {
     const prompt = settings.promptId === 'custom' ? settings.customPrompt : preset.prompt
     const target = settings.targetMode === 'tokens' ? Number(settings.targetTokens) : Number(settings.targetAmount)
     const batchSize = Math.max(1, Number(settings.batchSize) || 1)
+    const maxRounds = Math.max(0, Number(settings.maxRounds) || 0)
+    const maxDurationMs = Math.max(0, Number(settings.maxDurationMinutes) || 0) * 60_000
     const startedAt = Date.now()
+    const runPrice = { ...price }
+    const runId = crypto.randomUUID()
+    const runPricingSnapshot = createPricingSnapshot(settings.model, runPrice, catalogUpdatedAt, startedAt)
     const controller = new AbortController()
     abortRef.current = controller
+    pauseRef.current = { requested: false, resume: null, reason: '' }
 
     let totals = { tokens: 0, input: 0, output: 0, cost: 0, rounds: 0, verifiedRounds: 0 }
     let calibratedInput = 0
@@ -1790,6 +1919,22 @@ export default function App() {
     let leaderboardSession = null
 
     setSession({ ...INITIAL_SESSION, status: 'running', startedAt, message: '正在准备第 1 轮' })
+    acquireWakeLock()
+
+    const waitIfPaused = async () => {
+      if (!pauseRef.current.requested) return
+      await releaseWakeLock()
+      setSession((current) => ({
+        ...current,
+        status: 'paused',
+        message: '已安全暂停',
+      }))
+      await new Promise((resolve) => {
+        pauseRef.current.resume = resolve
+      })
+      pauseRef.current.resume = null
+      if (controller.signal.aborted) throw new DOMException('Run stopped', 'AbortError')
+    }
 
     try {
       if (settings.publishToLeaderboard) {
@@ -1801,7 +1946,19 @@ export default function App() {
         }
       }
 
-      for (let iteration = 0; iteration < 10000; iteration += 1) {
+      for (let iteration = 0; ; iteration += 1) {
+        if (controller.signal.aborted) throw new DOMException('Run stopped', 'AbortError')
+        await waitIfPaused()
+        if (maxRounds && totals.rounds >= maxRounds) {
+          finalStatus = 'limited'
+          finalMessage = `已达到 ${maxRounds} 轮运行限制`
+          break
+        }
+        if (maxDurationMs && Date.now() - startedAt >= maxDurationMs) {
+          finalStatus = 'limited'
+          finalMessage = `已达到 ${formatDuration(maxDurationMs)} 运行限制`
+          break
+        }
         const inputReserve = calibratedInput ? Math.ceil(calibratedInput * 1.05 + 8) : guardedPromptEstimate(settings.systemPrompt, prompt)
         let maxOutput
 
@@ -1815,10 +1972,10 @@ export default function App() {
             break
           }
         } else {
-          if (!price.output || (!price.input && !price.output)) throw new Error('金额模式需要有效的模型输入与输出价格')
+          if (!runPrice.output || (!runPrice.input && !runPrice.output)) throw new Error('金额模式需要有效的模型输入与输出价格')
           const remaining = target - totals.cost
-          const inputCostReserve = inputReserve * price.input
-          maxOutput = Math.min(batchSize, Math.floor((remaining - inputCostReserve) / price.output))
+          const inputCostReserve = inputReserve * runPrice.input
+          maxOutput = Math.min(batchSize, Math.floor((remaining - inputCostReserve) / runPrice.output))
           if (remaining <= 0) break
           if (maxOutput < 1) {
             finalStatus = 'guarded'
@@ -1840,7 +1997,7 @@ export default function App() {
         })
 
         calibratedInput = result.usage.input || calibratedInput
-        const roundCost = estimateUsageCost(result.usage, price)
+        const roundCost = estimateUsageCost(result.usage, runPrice)
         totals = {
           tokens: totals.tokens + result.usage.total,
           input: totals.input + result.usage.input,
@@ -1857,6 +2014,17 @@ export default function App() {
             value: `+${formatTokens(result.usage.total)} / ${formatMoney(roundCost)}`,
           },
         ].slice(-20)
+
+        writeRunCheckpoint({
+          id: runId,
+          date: todayKey(new Date(startedAt)),
+          startedAt,
+          provider: settings.provider,
+          model: settings.model,
+          promptId: settings.promptId,
+          ...totals,
+          pricing: runPricingSnapshot,
+        })
 
         setSession((current) => ({
           ...current,
@@ -1880,6 +2048,8 @@ export default function App() {
           }
           break
         }
+
+        await waitIfPaused()
       }
     } catch (error) {
       if (error.name === 'AbortError') {
@@ -1889,17 +2059,23 @@ export default function App() {
         finalStatus = 'blocked'
         finalMessage = providerBlockedMessage()
         setProviderBlocklist(readProviderBlocklist())
+      } else if (error.outcomeUnknown) {
+        finalStatus = 'unknown'
+        finalMessage = error.message
       } else {
         finalStatus = 'error'
         finalMessage = error.message
       }
     } finally {
       abortRef.current = null
+      pauseRef.current.resume?.()
+      pauseRef.current = { requested: false, resume: null, reason: '' }
+      releaseWakeLock()
       const endedAt = Date.now()
       setSession((current) => ({ ...current, ...totals, status: finalStatus, endedAt, message: finalMessage, logs: latestLogs }))
       if (totals.rounds > 0) {
         const run = {
-          id: crypto.randomUUID(),
+          id: runId,
           date: todayKey(new Date(startedAt)),
           startedAt,
           duration: endedAt - startedAt,
@@ -1913,8 +2089,10 @@ export default function App() {
           rounds: totals.rounds,
           verified: totals.rounds === totals.verifiedRounds,
           status: finalStatus,
+          pricing: runPricingSnapshot,
         }
         saveRun(run)
+        clearRunCheckpoint()
         if (leaderboardSession && run.verified) {
           submitLeaderboardRun(settings.leaderboardApiUrl, leaderboardSession, run)
             .then((result) => {
@@ -1932,6 +2110,8 @@ export default function App() {
               }))
             })
         }
+      } else {
+        clearRunCheckpoint()
       }
     }
   }
@@ -1939,6 +2119,8 @@ export default function App() {
   const stopRun = () => {
     setSession((current) => ({ ...current, status: 'stopping', message: '正在中止当前请求' }))
     abortRef.current?.abort()
+    pauseRef.current.resume?.()
+    pauseRef.current.resume = null
   }
 
   const handleUnblockProvider = (key) => {
@@ -1988,7 +2170,7 @@ export default function App() {
           <NavButton active={activePanel === 'settings'} icon={SlidersHorizontal} label="配置" onClick={() => setActivePanel('settings')} />
         </nav>
         <div className="sidebar-foot">
-          <div className="local-badge"><ShieldCheck size={18} /><span><strong>{participantLabel}</strong><small>排行榜编号</small></span></div>
+          <div className="local-badge"><ShieldCheck size={18} /><span><strong>{participantLabel}</strong></span></div>
           <button
             className="theme-toggle"
             type="button"
@@ -2005,7 +2187,21 @@ export default function App() {
 
       <main>
         {activePanel === 'burn' ? (
-          <BurnPanel settings={settings} updateSettings={updateSettings} catalogState={catalogState} session={session} onStart={startRun} onStop={stopRun} price={price} accounts={accountsState.accounts} />
+          <BurnPanel
+            settings={settings}
+            updateSettings={updateSettings}
+            catalogState={catalogState}
+            session={session}
+            onStart={startRun}
+            onPause={() => requestPause()}
+            onResume={() => {
+              resumeRun()
+              acquireWakeLock()
+            }}
+            onStop={stopRun}
+            price={price}
+            accounts={accountsState.accounts}
+          />
         ) : null}
         {activePanel === 'stats' ? <StatsPanel runs={runs} settings={settings} leaderboardVersion={leaderboardVersion} participantLabel={participantLabel} /> : null}
         {activePanel === 'settings' ? (

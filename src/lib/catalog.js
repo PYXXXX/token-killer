@@ -262,3 +262,15 @@ export function estimateUsageCost(usage, price) {
   const outputPrice = Math.max(0, Number(price?.output) || 0)
   return inputTokens * inputPrice + outputTokens * outputPrice
 }
+
+export function createPricingSnapshot(model, price, catalogUpdatedAt = 0, estimatedAt = Date.now()) {
+  return {
+    currency: 'USD',
+    source: String(price?.source || '未配置价格'),
+    matchedModel: String(price?.matchedModel || model || ''),
+    inputPerMillion: Math.max(0, Number(price?.input) || 0) * 1_000_000,
+    outputPerMillion: Math.max(0, Number(price?.output) || 0) * 1_000_000,
+    catalogUpdatedAt: Number(catalogUpdatedAt) || null,
+    estimatedAt: Number(estimatedAt) || Date.now(),
+  }
+}

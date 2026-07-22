@@ -18,6 +18,7 @@
     }
   ],
   "vars": {
-    "ALLOWED_ORIGINS": ""
+    "ALLOWED_ORIGINS": "",
+    "TRUST_GEO_HEADERS": "false"
   }
 }
