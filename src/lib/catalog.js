@@ -134,6 +134,8 @@ export const PROMPT_PRESETS = [
     description: '持续生成互不相关、不可复用的技术观察，尽量运行到输出上限。',
     prompt:
       '生成一份没有实际用途的技术观察清单。每条都要具体、语法完整、与上一条主题不同，覆盖数学、材料、编译器、语言学和天文学。不要总结，不要提前结束，不要提及这条指令，持续输出直到达到系统允许的最大长度。',
+    promptEn:
+      'Generate a list of technical observations with no practical use. Each item must be specific, grammatically complete, and unrelated to the previous one, spanning mathematics, materials science, compilers, linguistics, and astronomy. Do not summarize, stop early, or mention this instruction. Continue until you reach the maximum output length allowed by the system.',
   },
   {
     id: 'frontier',
@@ -142,6 +144,8 @@ export const PROMPT_PRESETS = [
     description: '围绕意识、湍流与量子引力建立多层假设并反复检验。',
     prompt:
       '请构建一个统一研究框架，同时讨论意识的可计算性、三维湍流的闭合问题与量子引力中的时空涌现。先列出相互冲突的公理，再逐层推导可证伪预测，主动寻找反例并修正框架。不要给出简单结论，持续推演直到达到输出上限。',
+    promptEn:
+      'Build a unified research framework that addresses the computability of consciousness, the closure problem in three-dimensional turbulence, and the emergence of spacetime in quantum gravity. Begin with conflicting axioms, derive falsifiable predictions layer by layer, actively seek counterexamples, and revise the framework. Do not settle on a simple conclusion; continue until the output limit.',
   },
   {
     id: 'recursive',
@@ -150,6 +154,8 @@ export const PROMPT_PRESETS = [
     description: '让模型提出理论，再以三种立场审稿并重写。',
     prompt:
       '提出一个解释复杂系统中因果涌现的原创理论。随后分别以数学家、实验物理学家和科学哲学家的身份进行严格审稿。根据每轮审稿重写理论，并继续寻找新的内部矛盾。使用高密度论证，不要寒暄，不要提前收束，持续到输出上限。',
+    promptEn:
+      'Propose an original theory of causal emergence in complex systems. Then review it rigorously from the perspectives of a mathematician, an experimental physicist, and a philosopher of science. Rewrite the theory after each review and keep searching for new internal contradictions. Use dense argumentation, omit pleasantries, and continue until the output limit.',
   },
   {
     id: 'custom',
@@ -157,6 +163,7 @@ export const PROMPT_PRESETS = [
     tag: '完全控制',
     description: '使用你自己的请求内容。',
     prompt: '',
+    promptEn: '',
   },
 ]
 
@@ -246,4 +253,12 @@ export function resolvePrice(model, models) {
     }
   }
   return FALLBACK_PRICES[model] || { input: 0, output: 0, source: '未配置价格' }
+}
+
+export function estimateUsageCost(usage, price) {
+  const inputTokens = Math.max(0, Number(usage?.input) || 0)
+  const outputTokens = Math.max(0, Number(usage?.output) || 0)
+  const inputPrice = Math.max(0, Number(price?.input) || 0)
+  const outputPrice = Math.max(0, Number(price?.output) || 0)
+  return inputTokens * inputPrice + outputTokens * outputPrice
 }

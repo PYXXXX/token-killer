@@ -1,0 +1,31 @@
+services:
+  token-killer-api:
+    container_name: token-killer-api
+    build:
+      context: ../..
+      dockerfile: Dockerfile.vps
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - token-killer-data:/data
+      - /opt/token-killer/secrets:/run/secrets:ro
+      - /opt/token-killer/backups:/backups
+    networks:
+      - cliproxyapi-net
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  token-killer-data:
+    name: token-killer-data
+
+networks:
+  cliproxyapi-net:
+    external: true
+    name: cliproxyapi-net

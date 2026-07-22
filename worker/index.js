@@ -40,6 +40,15 @@ const CHINA_PROVINCES = {
   ...SPECIAL_CHINA_REGIONS,
 }
 
+const CHINA_PROVINCES_EN = {
+  AH: 'Anhui', BJ: 'Beijing', CQ: 'Chongqing', FJ: 'Fujian', GD: 'Guangdong', GS: 'Gansu',
+  GX: 'Guangxi', GZ: 'Guizhou', HA: 'Henan', HB: 'Hubei', HE: 'Hebei', HI: 'Hainan',
+  HL: 'Heilongjiang', HN: 'Hunan', JL: 'Jilin', JS: 'Jiangsu', JX: 'Jiangxi', LN: 'Liaoning',
+  NM: 'Inner Mongolia', NX: 'Ningxia', QH: 'Qinghai', SC: 'Sichuan', SD: 'Shandong',
+  SH: 'Shanghai', SN: 'Shaanxi', SX: 'Shanxi', TJ: 'Tianjin', XJ: 'Xinjiang',
+  XZ: 'Tibet', YN: 'Yunnan', ZJ: 'Zhejiang', HK: 'Hong Kong SAR', MO: 'Macao SAR', TW: 'Taiwan Province',
+}
+
 const CHINA_NUMERIC_PROVINCES = {
   11: '北京市', 12: '天津市', 13: '河北省', 14: '山西省', 15: '内蒙古自治区',
   21: '辽宁省', 22: '吉林省', 23: '黑龙江省', 31: '上海市', 32: '江苏省',
@@ -87,7 +96,7 @@ async function handleApi(request, env, url) {
         {
           ok: Boolean(env.TOKEN_KILLER_DB && String(env.LEADERBOARD_HMAC_SECRET || '').length >= 32),
           service: 'token-killer-community',
-          storage: 'cloudflare-d1',
+          storage: env.STORAGE_KIND || 'cloudflare-d1',
           verification: 'supplier-usage-client-receipt',
           subscriptionOAuth: subscriptionStatus(env),
         },
@@ -222,7 +231,7 @@ async function getLeaderboard(request, env, url, cors) {
     period,
     scope: filter.scope,
     date: period === 'day' ? today : null,
-    context: publicGeoContext(geo),
+    context: publicGeoContext(geo, input.locale),
     page,
     pageSize: LEADERBOARD_PAGE_SIZE,
     pageCount,
@@ -256,7 +265,7 @@ async function getLeaderboardProfile(request, env, cors) {
   const profileHash = await digestIdentity(env.LEADERBOARD_HMAC_SECRET, `profile:${installationId}`)
   const profile = await getOrCreateLeaderboardProfile(env, profileHash)
   const geo = normalizedGeo(request)
-  const context = publicGeoContext(geo)
+  const context = publicGeoContext(geo, body.locale)
   const ranks = []
 
   for (const scope of context.scopes) {
@@ -287,7 +296,10 @@ async function createSession(request, env, cors) {
   const profileHash = await digestIdentity(env.LEADERBOARD_HMAC_SECRET, `profile:${installationId}`)
   const profile = await getOrCreateLeaderboardProfile(env, profileHash)
   const nickname = profile.participantLabel
-  const ip = request.headers.get('cf-connecting-ip') || 'local'
+  const ip = request.headers.get('cf-connecting-ip')
+    || request.headers.get('x-real-ip')
+    || request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+    || 'local'
   const ipHash = await digestIdentity(env.LEADERBOARD_HMAC_SECRET, `ip:${ip}`)
   const geo = normalizedGeo(request)
 
@@ -445,7 +457,10 @@ function scopeFilter(requestedScope, geo) {
 
 function normalizedGeo(request) {
   const cf = request.cf || {}
-  const rawCountry = safeGeoText(cf.country || request.headers.get('cf-ipcountry'), 2).toUpperCase()
+  const rawCountry = safeGeoText(
+    cf.country || request.headers.get('x-geo-country') || request.headers.get('cf-ipcountry'),
+    2,
+  ).toUpperCase()
   if (!/^[A-Z]{2}$/.test(rawCountry) || ['XX', 'T1'].includes(rawCountry)) {
     return { countryCode: null, provinceCode: null, provinceName: null, cityName: null }
   }
@@ -463,8 +478,10 @@ function normalizedGeo(request) {
     return { countryCode: rawCountry, provinceCode: null, provinceName: null, cityName: null }
   }
 
-  const provinceCode = safeGeoText(cf.regionCode, 12).toUpperCase().replace(/^CN-/, '') || null
-  const rawProvinceName = safeGeoText(cf.region, 80)
+  const provinceCode = safeGeoText(cf.regionCode || request.headers.get('x-geo-region-code'), 12)
+    .toUpperCase()
+    .replace(/^CN-/, '') || null
+  const rawProvinceName = safeGeoText(cf.region || request.headers.get('x-geo-region'), 80)
   const provinceKey = rawProvinceName.toLowerCase().replace(/[\s-]+/g, '_')
   const provinceName = CHINA_PROVINCES[provinceCode]
     || CHINA_NUMERIC_PROVINCES[provinceCode]
@@ -485,7 +502,7 @@ function normalizedGeo(request) {
     countryCode: 'CN',
     provinceCode,
     provinceName,
-    cityName: normalizeChinaCity(cf.city),
+    cityName: normalizeChinaCity(cf.city || request.headers.get('x-geo-city')),
   }
 }
 
@@ -496,12 +513,16 @@ function normalizeChinaCity(value) {
   return city
 }
 
-function publicGeoContext(geo) {
-  const scopes = [{ id: 'global', label: '全球' }]
-  const countryName = geo.countryCode ? countryDisplayName(geo.countryCode) : null
+function publicGeoContext(geo, locale = 'zh-CN') {
+  const language = locale === 'en' ? 'en' : 'zh-CN'
+  const scopes = [{ id: 'global', label: language === 'en' ? 'Global' : '全球' }]
+  const countryName = geo.countryCode ? countryDisplayName(geo.countryCode, language) : null
+  const provinceName = language === 'en'
+    ? CHINA_PROVINCES_EN[geo.provinceCode] || geo.provinceName
+    : geo.provinceName
   if (countryName) scopes.push({ id: 'country', label: countryName })
-  if (geo.countryCode === 'CN' && geo.provinceName) {
-    scopes.push({ id: 'province', label: geo.provinceName })
+  if (geo.countryCode === 'CN' && provinceName) {
+    scopes.push({ id: 'province', label: provinceName })
   }
   if (geo.countryCode === 'CN' && geo.cityName) {
     scopes.push({ id: 'city', label: geo.cityName })
@@ -511,17 +532,17 @@ function publicGeoContext(geo) {
     countryCode: geo.countryCode,
     countryName,
     provinceCode: geo.provinceCode,
-    provinceName: geo.provinceName,
+    provinceName,
     cityName: geo.cityName,
-    directory: [countryName, geo.provinceName, geo.cityName].filter(Boolean),
+    directory: [countryName, provinceName, geo.cityName].filter(Boolean),
     scopes,
   }
 }
 
-function countryDisplayName(countryCode) {
-  if (countryCode === 'CN') return '中国'
+function countryDisplayName(countryCode, locale = 'zh-CN') {
+  if (countryCode === 'CN') return locale === 'en' ? 'China' : '中国'
   try {
-    return new Intl.DisplayNames(['zh-CN'], { type: 'region' }).of(countryCode) || countryCode
+    return new Intl.DisplayNames([locale], { type: 'region' }).of(countryCode) || countryCode
   } catch {
     return countryCode
   }

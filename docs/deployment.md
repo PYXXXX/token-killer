@@ -1,238 +1,239 @@
-# 部署自己的 Token Killer
+# Deploy your own Token Killer
 
-Token Killer 可以只部署前端，也可以连同排行榜和订阅 OAuth 服务一起部署。先选一条适合自己的路线：
+English | [简体中文](deployment.zh-CN.md)
 
-| 路线 | 得到什么 | 适合谁 |
+Token Killer can run as a static frontend or as a complete service with a leaderboard and subscription OAuth. Choose the path that fits your needs:
+
+| Option | What you get | Best for |
 | --- | --- | --- |
-| GitHub Pages | 静态前端、本机统计、API Key 模式 | 只想先跑起来的人 |
-| Cloudflare Worker + D1 | 前端、排行榜、地区排名、订阅 OAuth | 想运营完整实例的人 |
+| GitHub Pages | Static frontend, browser-local statistics, API-key mode | Getting an instance online quickly |
+| Cloudflare Worker + D1 | Frontend, leaderboard, regional rankings, subscription OAuth | Operating a complete instance |
 
-如果你拿不准，先从 GitHub Pages 开始。后面补 Worker 不需要重做前端。
+If you are unsure, start with GitHub Pages. Adding the Worker later does not require rebuilding the frontend from scratch.
 
-## 路线一：部署静态前端
+## Option 1: deploy the static frontend
 
-### 1. Fork 仓库
+### 1. Fork the repository
 
-登录 GitHub 后，打开 [PYXXXX/token-killer](https://github.com/PYXXXX/token-killer)，点击右上角的 **Fork**。
+Sign in to GitHub, open [PYXXXX/token-killer](https://github.com/PYXXXX/token-killer), and click **Fork** in the top-right corner.
 
-你也可以直接打开 [Fork 页面](https://github.com/PYXXXX/token-killer/fork)。仓库名称可以继续使用 `token-killer`，也可以改成自己喜欢的名字；前端使用相对资源路径，改名不会影响 Pages 构建。
+You can also open the [fork page](https://github.com/PYXXXX/token-killer/fork) directly. Keep the name `token-killer` or choose another one; the frontend uses relative asset paths, so renaming the repository does not break the Pages build.
 
-### 2. 启用 GitHub Actions
+### 2. Enable GitHub Actions
 
-进入你 Fork 后的仓库，打开 **Actions**。如果页面提示 Fork 中的工作流尚未启用，点击 **I understand my workflows, go ahead and enable them**。
+Open **Actions** in your fork. If GitHub says workflows are disabled for the fork, click **I understand my workflows, go ahead and enable them**.
 
-如果组织策略限制了 Actions，请进入 **Settings → Actions → General**，确认仓库允许运行 GitHub 官方 Actions。
+If an organization policy blocks Actions, open **Settings → Actions → General** and make sure GitHub-authored actions are allowed.
 
-### 3. 打开 GitHub Pages
+### 3. Enable GitHub Pages
 
-进入 **Settings → Pages**，在 **Build and deployment** 中把 **Source** 设为 **GitHub Actions**。
+Open **Settings → Pages**. Under **Build and deployment**, set **Source** to **GitHub Actions**.
 
-仓库已经包含 [`.github/workflows/deploy-pages.yml`](../.github/workflows/deploy-pages.yml)，不需要自己新建工作流。
+The repository already contains [`.github/workflows/deploy-pages.yml`](../.github/workflows/deploy-pages.yml), so you do not need to create a workflow.
 
-### 4. 运行第一次部署
+### 4. Run the first deployment
 
-打开 **Actions → Deploy to GitHub Pages**，点击 **Run workflow**，选择 `main` 分支后开始运行。
+Open **Actions → Deploy to GitHub Pages**, click **Run workflow**, select `main`, and start the run.
 
-工作流中的 `build` 和 `deploy` 都变成绿色后，访问地址会显示在任务摘要和 **Settings → Pages** 中。通常是：
+Once both `build` and `deploy` are green, the site URL appears in the run summary and under **Settings → Pages**. It usually looks like:
 
 ```text
-https://你的用户名.github.io/仓库名/
+https://your-name.github.io/repository-name/
 ```
 
-### 5. 以后如何更新
+### 5. Publish future updates
 
-你向 `main` 分支推送新提交后，Pages 会自动重新构建和发布。
+Every new commit pushed to `main` triggers another Pages build and deployment.
 
-如果只在 GitHub 网页上改文件，提交到 `main` 即可。使用本地 Git 时：
+If you edit files on GitHub, commit directly to `main`. With local Git:
 
 ```bash
 git add .
-git commit -m "写清楚这次改了什么"
+git commit -m "Describe what changed"
 git push origin main
 ```
 
-### 6. 从上游同步更新
+### 6. Sync changes from upstream
 
-原项目发布新版本后，可以在 Fork 的仓库首页点击 **Sync fork → Update branch**。
+When the original project publishes an update, open your fork and click **Sync fork → Update branch**.
 
-使用 GitHub CLI 也可以同步：
+You can also use GitHub CLI:
 
 ```bash
-gh repo sync 你的用户名/token-killer -b main
+gh repo sync your-name/token-killer -b main
 ```
 
-同步会触发一次新的 Pages 部署。如果你的 Fork 已经修改过相同文件，GitHub 可能会要求你先解决冲突。
+Syncing triggers a new Pages deployment. If your fork changed the same files, GitHub may ask you to resolve conflicts first.
 
-## 路线二：部署完整服务
+## Option 2: deploy the full service
 
-完整服务会把前端、API、排行榜、地区识别和订阅 OAuth 一起部署到 Cloudflare。排行榜使用 D1；访问地区来自 Cloudflare 提供的请求信息，数据库不会保存原始 IP。
+The full deployment puts the frontend, API, leaderboard, regional detection, and subscription OAuth on Cloudflare. The leaderboard uses D1. Region information comes from Cloudflare request metadata; raw IP addresses are not stored in the database.
 
-### 1. 准备环境
+### 1. Prepare the environment
 
-你需要：
+You need:
 
-- Node.js 22 或更新版本；
-- 一个 Cloudflare 账号；
-- 已 Fork 或 Clone 的 Token Killer 仓库。
+- Node.js 22 or newer;
+- a Cloudflare account;
+- a fork or clone of Token Killer.
 
-安装依赖并登录 Cloudflare：
+Install dependencies and sign in to Cloudflare:
 
 ```bash
 npm install
 npx wrangler login
 ```
 
-### 2. 创建 D1 数据库
+### 2. Create the D1 database
 
 ```bash
 npx wrangler d1 create token-killer
 ```
 
-命令会返回一个 `database_id`。打开 [`wrangler.jsonc`](../wrangler.jsonc)，把：
+The command returns a `database_id`. Open [`wrangler.jsonc`](../wrangler.jsonc) and replace:
 
 ```jsonc
 "database_id": "REPLACE_WITH_YOUR_D1_DATABASE_ID"
 ```
 
-替换成刚才得到的 ID。你也可以同时修改顶层的 `name`，它将成为 Worker 名称的一部分。
+with the ID you just received. You may also change the top-level `name`; it becomes part of the Worker name.
 
-### 3. 配置允许访问的前端
+### 3. Allow the frontend origin
 
-如果前端和 Worker 部署在同一个域名，可以让 `ALLOWED_ORIGINS` 保持为空。
+Leave `ALLOWED_ORIGINS` empty when the frontend and Worker share one origin.
 
-如果前端放在 GitHub Pages、API 放在 Worker，需要在 [`wrangler.jsonc`](../wrangler.jsonc) 中填写前端的 Origin。这里不要包含仓库路径，也不要在末尾加 `/`：
+When GitHub Pages hosts the frontend and the Worker hosts the API, add the frontend origin to [`wrangler.jsonc`](../wrangler.jsonc). Do not include the repository path or a trailing slash:
 
 ```jsonc
 "vars": {
-  "ALLOWED_ORIGINS": "https://你的用户名.github.io"
+  "ALLOWED_ORIGINS": "https://your-name.github.io"
 }
 ```
 
-允许多个站点时使用英文逗号分隔：
+Separate multiple origins with commas:
 
 ```jsonc
 "ALLOWED_ORIGINS": "https://a.example.com,https://b.example.com"
 ```
 
-### 4. 配置排行榜签名密钥
+### 4. Add the leaderboard signing secret
 
-运行：
+Run:
 
 ```bash
 npx wrangler secret put LEADERBOARD_HMAC_SECRET
 ```
 
-按照提示输入至少 32 个随机字符。可以用下面的命令生成一份：
+Enter at least 32 random characters. This command can generate a suitable value:
 
 ```bash
 openssl rand -hex 32
 ```
 
-不要把这个值写进 `wrangler.jsonc`、README、Issue 或 Git 历史。
+Never put this secret in `wrangler.jsonc`, a README, an issue, or Git history.
 
-### 5. 初始化数据库
+### 5. Initialize the database
 
 ```bash
 npm run db:migrate:remote
 ```
 
-Wrangler 会询问是否应用 `migrations/` 中的迁移，确认后继续。
+Wrangler asks whether to apply the files in `migrations/`. Confirm to continue.
 
-排行榜编号由 D1 唯一签发。已经部署过旧版本时也需要重新执行这条命令，以应用 `0005_leaderboard_profiles.sql`；迁移会尽量保留现有编号，撞号的参与者会在下次连接时由服务端重新分配。
+D1 issues globally unique leaderboard numbers. Existing deployments must run this command again to apply `0005_leaderboard_profiles.sql`. The migration keeps existing numbers where possible; participants involved in a collision receive a new server-issued number the next time they connect.
 
-### 6. 配置 Gemini OAuth（可选）
+### 6. Configure Gemini OAuth (optional)
 
-ChatGPT、Claude 和 Grok 的现有授权流程不要求你额外保存客户端密钥。Gemini 需要你准备自己的 Google OAuth Client ID 与 Client Secret。
+The current ChatGPT, Claude, and Grok flows do not require you to store additional client secrets. Gemini requires your own Google OAuth Client ID and Client Secret.
 
-在 Google Cloud Console 创建 OAuth 客户端，并把下面的地址加入授权回调地址：
+Create an OAuth client in Google Cloud Console and add this callback URL:
 
 ```text
 https://codeassist.google.com/authcode
 ```
 
-随后分别保存两个 Secret：
+Then store both secrets:
 
 ```bash
 npx wrangler secret put GEMINI_OAUTH_CLIENT_ID
 npx wrangler secret put GEMINI_OAUTH_CLIENT_SECRET
 ```
 
-不配置这两个值不会影响 API Key、排行榜和其他订阅入口，但 Gemini 登录会不可用。
+Without these secrets, API-key mode, the leaderboard, and other subscription providers still work; only Gemini login stays unavailable.
 
-### 7. 构建并部署
+### 7. Build and deploy
 
 ```bash
 npm run deploy:cloudflare
 ```
 
-部署结束后，Wrangler 会显示一个 `workers.dev` 地址。打开下面的接口确认服务已经启动：
+Wrangler prints a `workers.dev` URL when deployment finishes. Open the health endpoint to confirm the service is running:
 
 ```text
-https://你的-worker.workers.dev/api/health
+https://your-worker.workers.dev/api/health
 ```
 
-健康检查中的 `ok` 为 `true`，表示 D1 和排行榜签名密钥已经就绪。
+An `ok` value of `true` means D1 and the leaderboard signing secret are ready.
 
-### 8. 让 GitHub Pages 使用你的 Worker
+### 8. Connect GitHub Pages to the Worker
 
-如果你直接访问 Worker 地址，前端与 API 同域，不需要额外填写服务地址。
+If users open the Worker URL directly, the frontend and API share an origin and no extra service URL is required.
 
-如果你继续使用 GitHub Pages 前端，请打开 Token Killer 的 **配置** 面板：
+If you keep the frontend on GitHub Pages, open Token Killer's **Settings** panel:
 
-1. 在“OAuth 授权服务”中填写完整 Worker 地址；
-2. 在“排行榜服务地址”中填写同一个 Worker 地址；
-3. 地址末尾不要填写 `/api`，也不要填写具体接口路径。
+1. Put the full Worker URL in **OAuth service**.
+2. Put the same Worker URL in **Leaderboard service URL**.
+3. Do not add `/api` or a specific endpoint path.
 
-示例：
+Example:
 
 ```text
-https://token-killer.你的账号.workers.dev
+https://token-killer.your-account.workers.dev
 ```
 
-填写 OAuth 授权服务后，先点击“检测服务”。只有 Worker 健康检查通过，并且返回对应平台可用时，ChatGPT、Claude、Gemini、Grok 的登录按钮才会启用。未配置 Gemini Client ID 与 Client Secret 时，其他入口仍可使用，Gemini 按钮会保持不可用。
+After entering the OAuth service, click **Check service**. Login buttons for ChatGPT, Claude, Gemini, and Grok are enabled only after the health check succeeds and reports that provider as available. If Gemini client credentials are missing, the other providers remain available while Gemini stays disabled.
 
-## Provider 停用与部署的关系
+## Provider blocking and deployment
 
-Provider 黑名单保存在访问者自己的浏览器中，不需要 D1，也不依赖排行榜服务。静态 GitHub Pages 和完整 Worker 部署都会使用相同的本地停用逻辑。
+The provider blocklist lives in each visitor's browser. It requires neither D1 nor the leaderboard service, and works the same way on static GitHub Pages and a complete Worker deployment.
 
-当服务端通过约定错误码明确拒绝带有 `[token-killer]` 标记的推理请求时，前端会立即停止当前运行，并在后续请求发送前拦截该 Provider。用户可以在 **配置 → 已屏蔽的 Provider** 中查看原因和地址，或手动解除。
+When a server explicitly rejects an inference request carrying `[token-killer]` with a recognized error code, the frontend stops the run and blocks future requests to that provider before they are sent. Users can inspect or remove entries under **Settings → Blocked providers**.
 
-如果你同时运营模型中转服务，并希望拒绝 Token Killer 流量，请参阅[如何识别并屏蔽来自 Token Killer 的请求](provider-blocking.md)。不要仅凭普通 `403`、`429` 或 `500` 响应判断客户端已被屏蔽。
+If you also operate a model relay and want to reject Token Killer traffic, read [Identifying and blocking Token Killer traffic](provider-blocking.md). An ordinary `403`, `429`, or `500` response does not count as an explicit opt-out.
 
-## 本地测试完整服务
+## Test the full service locally
 
-复制示例环境变量：
+Copy the example environment file:
 
 ```bash
 cp .dev.vars.example .dev.vars
 ```
 
-编辑 `.dev.vars`，至少替换 `LEADERBOARD_HMAC_SECRET`。需要 Gemini 登录时再填写对应的 Client ID 和 Client Secret。
+Edit `.dev.vars` and replace at least `LEADERBOARD_HMAC_SECRET`. Add Gemini Client ID and Client Secret only when you need Gemini login.
 
-初始化本地 D1 并启动：
+Initialize local D1 and start the service:
 
 ```bash
 npm run db:migrate:local
 npm run dev:cloudflare
 ```
 
-`.dev.vars` 已被 Git 忽略，不要用 `git add -f` 强行提交。
+`.dev.vars` is ignored by Git. Do not force-add it with `git add -f`.
 
-## 上线前检查
+## Pre-deployment checklist
 
-- `ALLOWED_ORIGINS` 只包含你真正运营的前端域名；
-- D1 的 `database_id` 指向你自己的数据库；
-- 所有 Secret 都通过 Wrangler 或 Cloudflare 控制台保存；
-- 仓库中没有 `.dev.vars`、`.env`、API Key、OAuth Token 或用户数据；
-- `npm run lint` 与 `npm run build` 均能通过；
-- `npm test` 能通过；
-- `/api/health` 可以访问，排行榜提交和读取都经过一次实际测试；
-- 配置页“检测服务”能够正确启用实际可用的 OAuth 平台；
-- 已经阅读所接入模型供应商的服务条款。
+- `ALLOWED_ORIGINS` contains only frontend origins you actually operate.
+- The D1 `database_id` points to your own database.
+- Every secret was stored through Wrangler or the Cloudflare dashboard.
+- The repository contains no `.dev.vars`, `.env`, API key, OAuth token, or user data.
+- `npm test`, `npm run lint`, and `npm run build` all pass.
+- `/api/health` is reachable, and leaderboard submission and reading have been tested once.
+- **Check service** enables exactly the OAuth providers that are available.
+- You have read the terms of every connected model provider.
 
-## 相关文档
+## Further reading
 
-- [GitHub：配置 Pages 发布来源](https://docs.github.com/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site)
-- [GitHub：同步 Fork](https://docs.github.com/pull-requests/collaborating-with-pull-requests/working-with-forks/syncing-a-fork)
-- [Cloudflare：D1 Wrangler 命令](https://developers.cloudflare.com/d1/wrangler-commands/)
-- [Cloudflare：Workers Secrets](https://developers.cloudflare.com/workers/configuration/secrets/)
+- [GitHub: Configuring a publishing source for Pages](https://docs.github.com/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site)
+- [GitHub: Syncing a fork](https://docs.github.com/pull-requests/collaborating-with-pull-requests/working-with-forks/syncing-a-fork)
+- [Cloudflare: D1 Wrangler commands](https://developers.cloudflare.com/d1/wrangler-commands/)
+- [Cloudflare: Workers secrets](https://developers.cloudflare.com/workers/configuration/secrets/)

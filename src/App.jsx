@@ -48,18 +48,13 @@ import {
   loadOpenRouterModels,
   PROMPT_PRESETS,
   PROVIDERS,
+  estimateUsageCost,
   resolvePrice,
   SUBSCRIPTION_MODELS,
   SUBSCRIPTION_PROVIDER_IDS,
 } from './lib/catalog.js'
 import { formatDuration, formatMoney, formatTokens, percent, todayKey } from './lib/format.js'
-import {
-  createLeaderboardSession,
-  getLeaderboard,
-  getLeaderboardProfile,
-  normalizeLeaderboardParticipantLabel,
-  submitLeaderboardRun,
-} from './lib/leaderboard.js'
+import { createLeaderboardSession, getLeaderboard, getLeaderboardProfile, submitLeaderboardRun } from './lib/leaderboard.js'
 import { RANK_TIERS, rankForTokens } from './lib/ranks.js'
 import {
   clearLocalData,
@@ -104,8 +99,8 @@ function leaderboardSourceLabel(value) {
 }
 
 function participantLabelFromEntry(value, rank = 0) {
-  const label = normalizeLeaderboardParticipantLabel(value)
-  if (label) return label
+  const label = String(value || '')
+  if (/^燃烧者 #[1-9]\d{5}$/.test(label)) return label
   return `燃烧者 #${String(100000 + (Math.max(0, Number(rank) || 0) % 900000)).padStart(6, '0')}`
 }
 
@@ -404,7 +399,7 @@ function BurnPanel({ settings, updateSettings, catalogState, session, onStart, o
               <div className="target-meta">
                 <div>
                   <span>当前价格</span>
-                  <strong>{isSubscription ? '包含在订阅额度中' : price.output ? `${formatMoney(price.output * 1_000_000, 2)} / M 输出` : '未匹配'}</strong>
+                  <strong>{price.output ? `${formatMoney(price.output * 1_000_000, 2)} / M 输出` : '未匹配'}</strong>
                 </div>
                 <div>
                   <span>输入预留</span>
@@ -415,9 +410,7 @@ function BurnPanel({ settings, updateSettings, catalogState, session, onStart, o
             <div className="price-source">
               <Info size={16} />
               <span>
-                {isSubscription
-                  ? `${PROVIDERS[settings.provider].label} 使用上游输出上限与 usage 逐轮逼近；隐藏推理、输入分词和供应商计费仍可能造成偏差。`
-                  : `${price.source}。金额模式是预算保护估算，最终账单以供应商为准。${catalogState === 'loading' ? ' 正在刷新模型目录。' : ''}`}
+                {`${price.source}。费用按当前模型的 OpenRouter 参考价与实际 usage 估算${isSubscription ? '，订阅账号同样计入费用统计与排行榜' : ''}。${catalogState === 'loading' ? ' 正在刷新模型目录。' : ''}`}
               </span>
             </div>
           </div>
@@ -543,7 +536,7 @@ function BurnPanel({ settings, updateSettings, catalogState, session, onStart, o
   )
 }
 
-function StatsPanel({ runs, settings, leaderboardVersion, participantLabel, onParticipantLabel }) {
+function StatsPanel({ runs, settings, leaderboardVersion, participantLabel }) {
   const [boardPeriod, setBoardPeriod] = useState('day')
   const [boardScope, setBoardScope] = useState('global')
   const [boardPage, setBoardPage] = useState(1)
@@ -658,10 +651,7 @@ function StatsPanel({ runs, settings, leaderboardVersion, participantLabel, onPa
     setRankProfile((current) => ({ ...current, status: 'loading', error: '' }))
     getLeaderboardProfile(settings.leaderboardApiUrl)
       .then((data) => {
-        if (active) {
-          setRankProfile({ status: 'ready', data, error: '' })
-          onParticipantLabel(data?.participantLabel)
-        }
+        if (active) setRankProfile({ status: 'ready', data, error: '' })
       })
       .catch((error) => {
         if (active) setRankProfile({ status: 'error', data: null, error: error.message })
@@ -669,7 +659,7 @@ function StatsPanel({ runs, settings, leaderboardVersion, participantLabel, onPa
     return () => {
       active = false
     }
-  }, [settings.leaderboardApiUrl, boardRefresh, leaderboardVersion, onParticipantLabel])
+  }, [settings.leaderboardApiUrl, boardRefresh, leaderboardVersion])
 
   const profileData = rankProfile.status === 'ready' ? rankProfile.data : null
   const currentTier = profileData?.tier || rankForTokens(totalTokens)
@@ -1328,7 +1318,6 @@ function SettingsPanel({
   accountsState,
   reloadAccounts,
   participantLabel,
-  participantLabelSource,
   providerBlocklist,
   onUnblockProvider,
   onClearProviderBlocklist,
@@ -1514,12 +1503,7 @@ function SettingsPanel({
           </div>
         </div>
         <div className="form-grid data-grid">
-          <Field
-            label="排行榜编号"
-            hint={participantLabelSource === 'leaderboard'
-              ? '由当前排行榜签发，不支持自行命名。'
-              : '尚未连接排行榜，由本机生成临时编号。'}
-          >
+          <Field label="排行榜编号" hint="自动生成，无需注册或填写昵称。">
             <output className="participant-id" aria-label="排行榜编号">{participantLabel}</output>
           </Field>
           <Field label="排行榜服务地址" hint="同域部署可留空；分开部署时填写服务 URL。">
@@ -1638,20 +1622,12 @@ export default function App() {
   const [providerBlocklist, setProviderBlocklist] = useState(() => readProviderBlocklist())
   const [showOnboarding, setShowOnboarding] = useState(() => !hasOnboarded())
   const [participantLabel, setParticipantLabel] = useState(() => getParticipantLabel())
-  const [participantLabelSource, setParticipantLabelSource] = useState('local')
   const abortRef = useRef(null)
   const modelListAbortRef = useRef(null)
   const apiKeyStateRef = useRef({ provider: '', ready: false, request: 0 })
   const apiKeySaveTimerRef = useRef(null)
 
   const updateSettings = useCallback((patch) => setSettings((current) => ({ ...current, ...patch })), [])
-  const acceptLeaderboardParticipantLabel = useCallback((value) => {
-    const issuedLabel = normalizeLeaderboardParticipantLabel(value)
-    if (!issuedLabel) return false
-    setParticipantLabel(issuedLabel)
-    setParticipantLabelSource('leaderboard')
-    return true
-  }, [])
   const reloadAccounts = useCallback(async () => {
     setAccountsState((current) => ({ ...current, status: 'loading', error: '' }))
     try {
@@ -1725,26 +1701,6 @@ export default function App() {
   useEffect(() => {
     reloadAccounts()
   }, [reloadAccounts])
-
-  useEffect(() => {
-    let active = true
-    setParticipantLabel(getParticipantLabel())
-    setParticipantLabelSource('local')
-
-    const timer = window.setTimeout(() => {
-      getLeaderboardProfile(settings.leaderboardApiUrl)
-        .then((profile) => {
-          if (!active) return
-          acceptLeaderboardParticipantLabel(profile?.participantLabel)
-        })
-        .catch(() => {})
-    }, 400)
-
-    return () => {
-      active = false
-      window.clearTimeout(timer)
-    }
-  }, [settings.leaderboardApiUrl, acceptLeaderboardParticipantLabel])
 
   useEffect(() => {
     if (isSubscriptionProvider(settings.provider) && settings.targetMode !== 'tokens') {
@@ -1839,7 +1795,6 @@ export default function App() {
       if (settings.publishToLeaderboard) {
         try {
           leaderboardSession = await createLeaderboardSession(settings.leaderboardApiUrl, settings)
-          acceptLeaderboardParticipantLabel(leaderboardSession?.participantLabel)
           latestLogs = [{ id: `board-${Date.now()}`, label: '排行榜', value: '运行票据已签发' }]
         } catch (error) {
           latestLogs = [{ id: `board-${Date.now()}`, label: '排行榜未连接', value: error.message }]
@@ -1885,9 +1840,7 @@ export default function App() {
         })
 
         calibratedInput = result.usage.input || calibratedInput
-        const roundCost = result.usage.cost > 0
-          ? result.usage.cost
-          : result.usage.input * price.input + result.usage.output * price.output
+        const roundCost = estimateUsageCost(result.usage, price)
         totals = {
           tokens: totals.tokens + result.usage.total,
           input: totals.input + result.usage.input,
@@ -2017,7 +1970,6 @@ export default function App() {
     apiKeyStateRef.current = { provider: DEFAULT_SETTINGS.provider, ready: true, request: resetRequest }
     setSettings(DEFAULT_SETTINGS)
     setParticipantLabel(getParticipantLabel())
-    setParticipantLabelSource('local')
     setSession(INITIAL_SESSION)
     setAccountsState({ status: 'idle', accounts: [], error: '' })
     setShowOnboarding(true)
@@ -2036,7 +1988,7 @@ export default function App() {
           <NavButton active={activePanel === 'settings'} icon={SlidersHorizontal} label="配置" onClick={() => setActivePanel('settings')} />
         </nav>
         <div className="sidebar-foot">
-          <div className="local-badge"><ShieldCheck size={18} /><span><strong>{participantLabel}</strong></span></div>
+          <div className="local-badge"><ShieldCheck size={18} /><span><strong>{participantLabel}</strong><small>排行榜编号</small></span></div>
           <button
             className="theme-toggle"
             type="button"
@@ -2055,15 +2007,7 @@ export default function App() {
         {activePanel === 'burn' ? (
           <BurnPanel settings={settings} updateSettings={updateSettings} catalogState={catalogState} session={session} onStart={startRun} onStop={stopRun} price={price} accounts={accountsState.accounts} />
         ) : null}
-        {activePanel === 'stats' ? (
-          <StatsPanel
-            runs={runs}
-            settings={settings}
-            leaderboardVersion={leaderboardVersion}
-            participantLabel={participantLabel}
-            onParticipantLabel={acceptLeaderboardParticipantLabel}
-          />
-        ) : null}
+        {activePanel === 'stats' ? <StatsPanel runs={runs} settings={settings} leaderboardVersion={leaderboardVersion} participantLabel={participantLabel} /> : null}
         {activePanel === 'settings' ? (
           <SettingsPanel
             settings={settings}
@@ -2079,7 +2023,6 @@ export default function App() {
             accountsState={accountsState}
             reloadAccounts={reloadAccounts}
             participantLabel={participantLabel}
-            participantLabelSource={participantLabelSource}
             providerBlocklist={providerBlocklist}
             onUnblockProvider={handleUnblockProvider}
             onClearProviderBlocklist={handleClearProviderBlocklist}

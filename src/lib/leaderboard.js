@@ -43,7 +43,7 @@ async function request(base, path, options = {}) {
   }
 }
 
-export async function getLeaderboard(base, period = 'day', scope = 'global', page = 1) {
+export async function getLeaderboard(base, period = 'day', scope = 'global', page = 1, locale = 'zh-CN') {
   const safeScope = ['country', 'province', 'city'].includes(scope) ? scope : 'global'
   return request(base, '/api/leaderboard', {
     method: 'POST',
@@ -52,14 +52,15 @@ export async function getLeaderboard(base, period = 'day', scope = 'global', pag
       period: period === 'all' ? 'all' : 'day',
       scope: safeScope,
       page: Math.min(10, Math.max(1, Number.parseInt(page, 10) || 1)),
+      locale,
     }),
   })
 }
 
-export async function getLeaderboardProfile(base) {
+export async function getLeaderboardProfile(base, locale = 'zh-CN') {
   return request(base, '/api/leaderboard/profile', {
     method: 'POST',
-    body: JSON.stringify({ installationId: getInstallationId() }),
+    body: JSON.stringify({ installationId: getInstallationId(), locale }),
   })
 }
 

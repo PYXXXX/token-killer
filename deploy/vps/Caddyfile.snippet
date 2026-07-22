@@ -1,0 +1,31 @@
+burn.bilirec.com {
+    encode zstd gzip
+
+    request_body {
+        max_size 1MB
+    }
+
+    handle /api/* {
+        reverse_proxy token-killer-api:8787 {
+            flush_interval -1
+            header_up X-Real-IP {remote_host}
+        }
+    }
+
+    handle {
+        rewrite * /token-killer{uri}
+        reverse_proxy https://pyxxxx.github.io {
+            header_up Host pyxxxx.github.io
+        }
+    }
+
+    log {
+        output file /var/log/caddy/token-killer.log {
+            roll_size 50mb
+            roll_keep 10
+            roll_keep_for 720h
+        }
+        format json
+        level INFO
+    }
+}

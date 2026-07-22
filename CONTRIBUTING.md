@@ -1,31 +1,35 @@
-# 一起协作
+# Contributing
 
-遇到问题时，请尽量写清浏览器、请求格式、API 地址的域名、复现步骤和实际结果。可以附截图，但务必先遮掉 API Key、OAuth Token、授权码、账号 ID 和完整 Prompt。
+English | [简体中文](CONTRIBUTING.zh-CN.md)
 
-准备提交代码时：
+This project is still young, so the contribution process is intentionally light.
 
-1. 从 `main` 建一个短分支。
-2. 尽量让一次提交只解决一件事。
-3. 运行 `npm run lint` 和 `npm run build`。
-4. 在 PR 里说清楚为什么改，以及你实际验证了什么。
+When reporting a problem, include the browser, request format, API hostname, reproduction steps, and actual result. Screenshots are welcome, but always redact API keys, OAuth tokens, authorization codes, account IDs, and full prompts first.
 
-界面改动最好附上桌面和窄屏截图。涉及新供应商时，请同时说明请求格式、流式事件和 `usage` 字段来自哪里。
+When preparing a change:
 
-## 请求标记与 Provider 停用
+1. Create a short-lived branch from `main`.
+2. Keep each commit focused on one concern where practical.
+3. Run `npm test`, `npm run lint`, and `npm run build`.
+4. Explain why the change is needed and what you verified in the pull request.
 
-所有新增的模型推理路径都必须把 `[token-killer]` 放在最后一条用户文本的末尾。不要把标记放进 system prompt、Header、模型列表请求、OAuth、排行榜或健康检查。
+For interface changes, include screenshots at desktop and narrow viewport sizes. For a new provider, document its request format, streaming events, and the source of its `usage` fields.
 
-改动请求构造、订阅代理、错误处理或本地存储时，请至少确认：
+## Request marker and provider blocking
 
-- 标记只出现一次，空用户文本也能正确处理；
-- 输入 Token 估算包含实际发送的标记；
-- 只有 `sensitive_words_detected` 和 `content_policy_violation` 会触发 Provider 停用；
-- 普通 HTTP、网络和 CORS 错误不会写入黑名单；
-- 已停用 Provider 会在 `fetch` 前被拦截；
-- 不同域名、基础路径和订阅类型不会互相误伤；
-- 清空本地数据时会一并清除 Provider 黑名单。
+Every inference path must append `[token-killer]` to the end of the final user text. Never place the marker in a system prompt, header, model-list request, OAuth request, leaderboard request, or health check.
 
-提交前运行：
+When changing request construction, subscription proxies, error handling, or local storage, verify at least the following:
+
+- the marker appears exactly once, including when the user text is empty;
+- input-token estimates include the marker that is actually sent;
+- only `sensitive_words_detected` and `content_policy_violation` disable a provider;
+- ordinary HTTP, network, and CORS errors never enter the provider blocklist;
+- an already disabled provider is stopped before `fetch`;
+- different domains, base paths, and subscription providers never affect one another;
+- clearing local data also clears the provider blocklist.
+
+Before submitting:
 
 ```bash
 npm test
@@ -33,4 +37,4 @@ npm run lint
 npm run build
 ```
 
-如果修改了这套协议，请同时更新 [`docs/provider-blocking.md`](docs/provider-blocking.md) 和相关回归测试。
+If you change this protocol, update [`docs/provider-blocking.md`](docs/provider-blocking.md) and its regression tests in the same pull request.

@@ -1,4 +1,5 @@
 import { formatMoney, formatTokens } from './format.js'
+import { localeTag, t, translateText } from './i18n.js'
 
 function roundedRect(ctx, x, y, width, height, radius) {
   ctx.beginPath()
@@ -6,7 +7,7 @@ function roundedRect(ctx, x, y, width, height, radius) {
   ctx.fill()
 }
 
-export function exportShareCard({ todayTokens, totalTokens, totalCost, participantLabel, globalRank, tier }) {
+export function exportShareCard({ todayTokens, totalTokens, totalCost, participantLabel, globalRank, tier, locale = 'zh-CN' }) {
   const canvas = document.createElement('canvas')
   canvas.width = 1600
   canvas.height = 900
@@ -22,7 +23,7 @@ export function exportShareCard({ todayTokens, totalTokens, totalCost, participa
   ctx.fillText('TOKEN KILLER', 108, 115)
   ctx.font = '500 24px ui-sans-serif, -apple-system, BlinkMacSystemFont, sans-serif'
   ctx.fillStyle = '#716c63'
-  ctx.fillText('TOKEN 消耗报告', 108, 158)
+  ctx.fillText(t(locale, 'TOKEN 消耗报告', 'TOKEN BURN REPORT'), 108, 158)
 
   ctx.fillStyle = '#e6dfd4'
   roundedRect(ctx, 104, 230, 1392, 2, 1)
@@ -32,12 +33,12 @@ export function exportShareCard({ todayTokens, totalTokens, totalCost, participa
   ctx.fillText(formatTokens(todayTokens), 104, 430)
   ctx.font = '500 30px ui-sans-serif, -apple-system, BlinkMacSystemFont, sans-serif'
   ctx.fillStyle = '#716c63'
-  ctx.fillText('今日无意义消耗 TOKEN', 110, 490)
+  ctx.fillText(t(locale, '今日无意义消耗 TOKEN', 'POINTLESS TOKENS BURNED TODAY'), 110, 490)
 
   const items = [
-    ['累计消耗', formatTokens(totalTokens)],
-    ['估算成本', formatMoney(totalCost)],
-    ['当前排位', `${globalRank ? `全球 #${globalRank}` : '冲击全球榜'} / ${tier?.fullName || '火种 III'}`],
+    [t(locale, '累计消耗', 'Lifetime burn'), formatTokens(totalTokens)],
+    [t(locale, '估算成本', 'Estimated cost'), formatMoney(totalCost)],
+    [t(locale, '当前排位', 'Current rank'), `${globalRank ? t(locale, `全球 #${globalRank}`, `Global #${globalRank}`) : t(locale, '冲击全球榜', 'Climbing the global board')} / ${translateText(locale, tier?.fullName || '火种 III')}`],
   ]
   items.forEach(([label, value], index) => {
     const x = 108 + index * 460
@@ -53,9 +54,9 @@ export function exportShareCard({ todayTokens, totalTokens, totalCost, participa
 
   ctx.fillStyle = '#716c63'
   ctx.font = '500 20px ui-monospace, SFMono-Regular, Menlo, monospace'
-  ctx.fillText(new Date().toLocaleDateString('zh-CN'), 108, 838)
+  ctx.fillText(new Date().toLocaleDateString(localeTag(locale)), 108, 838)
   ctx.textAlign = 'right'
-  ctx.fillText(participantLabel, 1492, 838)
+  ctx.fillText(translateText(locale, participantLabel), 1492, 838)
 
   const link = document.createElement('a')
   link.href = canvas.toDataURL('image/png')

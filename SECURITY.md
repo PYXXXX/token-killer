@@ -1,7 +1,9 @@
-# 安全问题
+# Security
 
-Token Killer 会处理 API Key 和 OAuth 凭据，因此请不要在公开 Issue 中粘贴任何真实凭据、授权码、请求日志或账号信息。
+English | [简体中文](SECURITY.zh-CN.md)
 
-如果你发现了可能泄露凭据、绕过排行榜校验或影响其他用户的问题，请优先使用 GitHub 仓库的 **Report a vulnerability** 私密报告入口。报告里只需要提供最小复现；不要上传仍然有效的生产密钥。
+Token Killer handles API keys and OAuth credentials. Never paste real credentials, authorization codes, request logs, or account details into a public issue.
 
-普通功能错误和界面问题可以直接提交 Issue。
+If you discover a credential leak, leaderboard verification bypass, or another issue that could affect other users, use the repository's private **Report a vulnerability** form. Include only the minimum reproduction needed, and never upload a production secret that is still valid.
+
+Regular bugs and interface problems can be reported through public issues.
