@@ -12,6 +12,12 @@ burn.bilirec.com {
         }
     }
 
+    handle /geo {
+        reverse_proxy token-killer-api:8787 {
+            header_up X-Real-IP {remote_host}
+        }
+    }
+
     handle {
         rewrite * /token-killer{uri}
         reverse_proxy https://pyxxxx.github.io {

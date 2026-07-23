@@ -5,8 +5,8 @@ import worker, { preferredGeo } from '../worker/index.js'
 const SECRET = 'a-dedicated-mainland-geo-secret-with-more-than-32-characters'
 const ORIGIN = 'https://frontend.example'
 
-function geoRequest(country, geo = {}, headers = {}) {
-  const request = new Request('https://geo.example.cn/api/geo/assertion', {
+function geoRequest(country, geo = {}, headers = {}, pathname = '/geo') {
+  const request = new Request(`https://geo.example.cn${pathname}`, {
     method: 'POST',
     headers: {
       origin: ORIGIN,
@@ -59,6 +59,15 @@ test('a signed mainland assertion overrides a proxy exit location', async () => 
   })
 })
 
+test('the legacy geo assertion path remains available', async () => {
+  const response = await worker.fetch(geoRequest('CN', { regionCode: 'BJ', city: 'Beijing' }, {}, '/api/geo/assertion'), {
+    ALLOWED_ORIGINS: ORIGIN,
+    GEO_ASSERTION_HMAC_SECRET: SECRET,
+  })
+  assert.equal(response.status, 200)
+  assert.equal((await response.json()).mainland, true)
+})
+
 test('invalid assertions fall back to the leaderboard edge location', async () => {
   const request = leaderboardRequest('US')
   const geo = await preferredGeo(request, { GEO_ASSERTION_HMAC_SECRET: SECRET }, 'invalid.assertion')
@@ -79,7 +88,9 @@ test('Hong Kong, Macao, and Taiwan never receive mainland-direct assertions', as
   for (const country of ['HK', 'MO', 'TW']) {
     const response = await worker.fetch(geoRequest(country), env)
     assert.equal(response.status, 200)
-    assert.deepEqual(await response.json(), { mainland: false })
+    const payload = await response.json()
+    assert.equal(payload.mainland, false)
+    assert.equal(payload.context.countryName, '中国')
   }
 })
 
@@ -95,7 +106,7 @@ test('self-hosted geo headers are accepted only when explicitly trusted', async 
     GEO_ASSERTION_HMAC_SECRET: SECRET,
   }
   const rejected = await worker.fetch(geoRequest('', {}, headers), baseEnv)
-  assert.deepEqual(await rejected.json(), { mainland: false })
+  assert.deepEqual(await rejected.json(), { mainland: false, context: null })
 
   const accepted = await worker.fetch(
     geoRequest('', {}, headers),

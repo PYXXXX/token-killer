@@ -65,7 +65,10 @@ export function clearProviderBlocklist() {
 export function readSettings(fallback) {
   try {
     const { nickname: _nickname, apiKey: _apiKey, ...saved } = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')
-    return { ...fallback, ...saved, apiKey: '' }
+    const preferMainlandRegion = Object.hasOwn(saved, 'preferMainlandRegion')
+      ? Boolean(saved.preferMainlandRegion)
+      : Boolean(saved.mainlandGeoApiUrl)
+    return { ...fallback, ...saved, preferMainlandRegion, apiKey: '' }
   } catch {
     return fallback
   }

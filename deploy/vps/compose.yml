@@ -10,6 +10,7 @@ services:
     volumes:
       - token-killer-data:/data
       - /opt/token-killer/secrets:/run/secrets:ro
+      - /opt/token-killer/geoip:/geoip:ro
       - /opt/token-killer/backups:/backups
     networks:
       - cliproxyapi-net

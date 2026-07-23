@@ -56,6 +56,7 @@ import {
   SUBSCRIPTION_PROVIDER_IDS,
 } from './lib/catalog.js'
 import { formatDuration, formatMoney, formatTokens, percent, todayKey } from './lib/format.js'
+import { checkMainlandGeoService, defaultMainlandGeoEndpoint } from './lib/geo.js'
 import { createLeaderboardSession, getLeaderboard, getLeaderboardProfile, submitLeaderboardRun } from './lib/leaderboard.js'
 import { RANK_TIERS, rankForTokens } from './lib/ranks.js'
 import {
@@ -88,6 +89,8 @@ const accountProviderForSettings = (provider) => ({
 }[provider] || '')
 const apiKeySecretId = (provider) => `api-key:${provider}`
 const EMPTY_SUBSCRIPTION_PROVIDERS = { openai: false, claude: false, gemini: false, grok: false }
+const CONFIGURED_MAINLAND_GEO_URL = String(import.meta.env.VITE_MAINLAND_GEO_API_URL || '').trim()
+const DEFAULT_MAINLAND_GEO_URL = CONFIGURED_MAINLAND_GEO_URL || defaultMainlandGeoEndpoint()
 
 function leaderboardSourceLabel(value) {
   const source = String(value || '').trim()
@@ -130,7 +133,8 @@ const DEFAULT_SETTINGS = {
   customPrompt: '',
   publishToLeaderboard: true,
   leaderboardApiUrl: '',
-  mainlandGeoApiUrl: import.meta.env.VITE_MAINLAND_GEO_API_URL || '',
+  preferMainlandRegion: Boolean(CONFIGURED_MAINLAND_GEO_URL),
+  mainlandGeoApiUrl: DEFAULT_MAINLAND_GEO_URL,
   subscriptionApiUrl: '',
   selectedAccountId: '',
   theme: 'system',
@@ -624,11 +628,12 @@ function StatsPanel({ runs, settings, leaderboardVersion, participantLabel }) {
   const hasChartData = stackedDays.some((day) => day.tokens > 0)
   const localLeaderboard = [...runs].sort((a, b) => b.tokens - a.tokens).slice(0, 5)
   const boardSource = leaderboardSourceLabel(settings.leaderboardApiUrl)
+  const mainlandGeoApiUrl = settings.preferMainlandRegion ? settings.mainlandGeoApiUrl : ''
 
   useEffect(() => {
     let active = true
     setGlobalBoard((current) => ({ ...current, status: 'loading', error: '' }))
-    getLeaderboard(settings.leaderboardApiUrl, boardPeriod, boardScope, boardPage, 'zh-CN', settings.mainlandGeoApiUrl)
+    getLeaderboard(settings.leaderboardApiUrl, boardPeriod, boardScope, boardPage, 'zh-CN', mainlandGeoApiUrl)
       .then((payload) => {
         if (active) {
           const pageCount = Math.max(1, Number(payload.pageCount) || 1)
@@ -667,12 +672,12 @@ function StatsPanel({ runs, settings, leaderboardVersion, participantLabel }) {
     return () => {
       active = false
     }
-  }, [settings.leaderboardApiUrl, settings.mainlandGeoApiUrl, boardPeriod, boardScope, boardPage, boardRefresh, leaderboardVersion])
+  }, [settings.leaderboardApiUrl, mainlandGeoApiUrl, boardPeriod, boardScope, boardPage, boardRefresh, leaderboardVersion])
 
   useEffect(() => {
     let active = true
     setRankProfile((current) => ({ ...current, status: 'loading', error: '' }))
-    getLeaderboardProfile(settings.leaderboardApiUrl, 'zh-CN', settings.mainlandGeoApiUrl)
+    getLeaderboardProfile(settings.leaderboardApiUrl, 'zh-CN', mainlandGeoApiUrl)
       .then((data) => {
         if (active) setRankProfile({ status: 'ready', data, error: '' })
       })
@@ -682,7 +687,7 @@ function StatsPanel({ runs, settings, leaderboardVersion, participantLabel }) {
     return () => {
       active = false
     }
-  }, [settings.leaderboardApiUrl, settings.mainlandGeoApiUrl, boardRefresh, leaderboardVersion])
+  }, [settings.leaderboardApiUrl, mainlandGeoApiUrl, boardRefresh, leaderboardVersion])
 
   const profileData = rankProfile.status === 'ready' ? rankProfile.data : null
   const currentTier = profileData?.tier || rankForTokens(totalTokens)
@@ -1349,6 +1354,36 @@ function SettingsPanel({
   onUnblockProvider,
   onClearProviderBlocklist,
 }) {
+  const geoStatusId = useId()
+  const [geoServiceState, setGeoServiceState] = useState({ status: 'idle', mainland: false, context: null, error: '' })
+
+  useEffect(() => {
+    setGeoServiceState({ status: 'idle', mainland: false, context: null, error: '' })
+  }, [settings.preferMainlandRegion, settings.mainlandGeoApiUrl])
+
+  const checkGeoService = async () => {
+    if (!settings.preferMainlandRegion) return
+    setGeoServiceState({ status: 'checking', mainland: false, context: null, error: '' })
+    const result = await checkMainlandGeoService(settings.mainlandGeoApiUrl)
+    setGeoServiceState({
+      status: result.reachable ? 'ready' : 'error',
+      mainland: result.mainland,
+      context: result.context,
+      error: result.error || '',
+    })
+  }
+
+  const geoDirectory = geoServiceState.context?.directory || []
+  const geoServiceMessage = geoServiceState.status === 'checking'
+    ? '正在探测当前赛区'
+    : geoServiceState.status === 'ready' && geoServiceState.mainland
+      ? `探测成功，将优先参与 ${geoDirectory.join(' / ') || '中国大陆'} 赛区`
+      : geoServiceState.status === 'ready'
+        ? `服务正常，当前${geoDirectory.length ? `识别为 ${geoDirectory.join(' / ')}` : '未识别到地区'}；排行榜将使用节点定位`
+        : geoServiceState.status === 'error'
+          ? `探测失败：${geoServiceState.error}`
+          : '开启后可检测服务与当前赛区'
+
   return (
     <div className="panel-page settings-page">
       <header className="page-header">
@@ -1561,9 +1596,34 @@ function SettingsPanel({
           <Field label="排行榜服务地址" hint="同域部署可留空；分开部署时填写服务 URL。">
             <input type="url" value={settings.leaderboardApiUrl} spellCheck="false" onChange={(event) => updateSettings({ leaderboardApiUrl: event.target.value })} placeholder="同域 /api" />
           </Field>
-          <Field label="大陆地区探测地址" hint="可选。大陆用户优先直连探测；失败或非大陆时回退排行榜节点识别。">
-            <input type="url" value={settings.mainlandGeoApiUrl} spellCheck="false" onChange={(event) => updateSettings({ mainlandGeoApiUrl: event.target.value })} placeholder="https://geo.example.cn" />
+          <Field label="中国大陆赛区" hint="开启后先通过地区服务识别；失败时仍会回退排行榜节点。">
+            <label className="toggle-line">
+              <input
+                type="checkbox"
+                checked={settings.preferMainlandRegion}
+                onChange={(event) => updateSettings({
+                  preferMainlandRegion: event.target.checked,
+                  mainlandGeoApiUrl: String(settings.mainlandGeoApiUrl || '').trim() || DEFAULT_MAINLAND_GEO_URL,
+                })}
+              />
+              <span>优先参与中国大陆赛区</span>
+            </label>
           </Field>
+          {settings.preferMainlandRegion ? (
+            <Field label="地区探测服务" hint="默认使用当前域名 /geo，也可以填写独立的直连友好域名。" className="span-2">
+              <div className="oauth-service-field">
+                <input type="url" value={settings.mainlandGeoApiUrl} spellCheck="false" onChange={(event) => updateSettings({ mainlandGeoApiUrl: event.target.value })} placeholder={DEFAULT_MAINLAND_GEO_URL} />
+                <button className="secondary-button oauth-service-check" type="button" onClick={checkGeoService} disabled={geoServiceState.status === 'checking'}>
+                  <ArrowClockwise className={geoServiceState.status === 'checking' ? 'spin' : ''} size={16} />
+                  {geoServiceState.status === 'checking' ? '检测中' : '检测服务'}
+                </button>
+              </div>
+              <div className={`oauth-service-status ${geoServiceState.status}`} id={geoStatusId} aria-live="polite">
+                {geoServiceState.status === 'ready' && geoServiceState.mainland ? <Check size={15} weight="bold" /> : <Info size={15} />}
+                <span>{geoServiceMessage}</span>
+              </div>
+            </Field>
+          ) : null}
           <Field label="公开汇总" hint="公开 token、费用、轮数、模型和时长。">
             <label className="toggle-line">
               <input type="checkbox" checked={settings.publishToLeaderboard} onChange={(event) => updateSettings({ publishToLeaderboard: event.target.checked })} />

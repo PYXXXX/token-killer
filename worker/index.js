@@ -78,7 +78,7 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url)
 
-    if (url.pathname.startsWith('/api/')) {
+    if (url.pathname.startsWith('/api/') || url.pathname === '/geo') {
       return handleApi(request, env, url)
     }
 
@@ -101,6 +101,7 @@ async function handleApi(request, env, url) {
           storage: env.STORAGE_KIND || 'cloudflare-d1',
           verification: 'supplier-usage-client-receipt',
           mainlandGeoAssertion: geoAssertionSecret(env).length >= 32,
+          geoIpDatabase: String(env.GEOIP_DATABASE_AVAILABLE || '').toLowerCase() === 'true',
           subscriptionOAuth: subscriptionStatus(env),
         },
         200,
@@ -108,7 +109,7 @@ async function handleApi(request, env, url) {
       )
     }
 
-    if (request.method === 'POST' && url.pathname === '/api/geo/assertion') {
+    if (request.method === 'POST' && ['/geo', '/api/geo/assertion'].includes(url.pathname)) {
       return await createMainlandGeoAssertion(request, env, cors)
     }
 
@@ -170,12 +171,15 @@ async function createMainlandGeoAssertion(request, env, cors) {
   if (secret.length < 32) throw httpError(503, 'Mainland geo assertions are not configured.')
   const body = await readJson(request)
   const nonce = requiredText(body.nonce, 'nonce', 16, 128)
-  if (trustedCountryCode(request, env) !== 'CN') {
-    return json({ mainland: false }, 200, cors)
-  }
-
+  const trustedCountry = trustedCountryCode(request, env)
+  if (!trustedCountry) return json({ mainland: false, context: null }, 200, cors)
   const geo = normalizedGeo(request)
-  if (geo.countryCode !== 'CN') return json({ mainland: false }, 200, cors)
+  if (trustedCountry !== 'CN' || geo.countryCode !== 'CN') {
+    return json({
+      mainland: false,
+      context: publicGeoContext({ ...geo, source: 'geo-probe' }, body.locale),
+    }, 200, cors)
+  }
   const issuedAt = Math.floor(Date.now() / 1000)
   const expiresAt = issuedAt + GEO_ASSERTION_TTL_SECONDS
   const payload = {

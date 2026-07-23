@@ -70,7 +70,9 @@ export async function getLeaderboardProfile(base, locale = 'zh-CN', mainlandGeoA
 
 export async function createLeaderboardSession(base, settings) {
   if (!settings.publishToLeaderboard) return null
-  const geoAssertion = await resolveMainlandGeoAssertion(settings.mainlandGeoApiUrl)
+  const geoAssertion = settings.preferMainlandRegion
+    ? await resolveMainlandGeoAssertion(settings.mainlandGeoApiUrl)
+    : ''
   return request(base, '/api/leaderboard/sessions', {
     method: 'POST',
     body: JSON.stringify({

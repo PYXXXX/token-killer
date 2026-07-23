@@ -201,28 +201,40 @@ Token Killer can ask a separate mainland-accessible endpoint for a short-lived s
 
 This endpoint is optional and is used only for leaderboard location. It never receives an API key, OAuth credential, installation ID, prompt, model response, or inference request.
 
-### 1. Deploy the probe on a mainland-accessible HTTPS origin
+### 1. Expose `/geo` on the API service
 
-The included Worker/Node API exposes `POST /api/geo/assertion`. For this routing pattern to help, its hostname must be reached directly under the visitor's proxy rules. Hosting it on the same overseas route as the leaderboard gives no location advantage.
+The included Worker/Node API exposes `POST /geo`; the older `POST /api/geo/assertion` path remains compatible. When the frontend and API share an origin, update the reverse proxy so `/geo` reaches the API container. The provided Caddy snippet already includes this route.
 
-The service needs trusted country, province, and city metadata. Cloudflare supplies this through `request.cf`. A self-hosted Node service can instead accept geo headers from a trusted CDN, load balancer, or GeoIP-aware reverse proxy. Set:
+The settings switch is off by default unless `VITE_MAINLAND_GEO_API_URL` was configured at build time. When a visitor enables **Prefer the mainland China region**, the frontend fills in `/geo` on the current origin, checks it before leaderboard calls, and shows the detected region. A different HTTPS origin can be entered at any time.
 
-```env
-TRUST_GEO_HEADERS=true
-```
+### 2. Give a Singapore VPS a local GeoIP database
 
-and have the proxy inject:
+A Node service does not receive Cloudflare's `request.cf`. To make `/geo` work directly on a Singapore VPS, Token Killer can read a GeoLite2 City or GeoIP2 City `.mmdb` file locally through MaxMind's official Node reader. The lookup stays on the VPS and does not send the visitor's IP to another geolocation API.
+
+Download a current city database from [MaxMind](https://dev.maxmind.com/geoip/geolite2-free-geolocation-data), then place it at:
 
 ```text
-X-Geo-Country: CN
-X-Geo-Region-Code: ZJ
-X-Geo-Region: Zhejiang
-X-Geo-City: Hangzhou
+/opt/token-killer/geoip/GeoLite2-City.mmdb
 ```
 
-Do not enable `TRUST_GEO_HEADERS` on a server that accepts those headers directly from the public internet. The reverse proxy must remove incoming `X-Geo-*` and `CF-IPCountry` values before adding its own verified values. Country-only metadata still selects China's national ranking; province and city require those fields to be supplied.
+The provided Compose file mounts that directory read-only. Keep these values in `deploy/vps/.env`:
 
-### 2. Share a dedicated signing secret
+```env
+GEOIP_DATABASE_PATH=/geoip/GeoLite2-City.mmdb
+TRUST_PROXY_IP_HEADERS=true
+```
+
+`TRUST_PROXY_IP_HEADERS=true` is safe only when the Node port is private and every request passes through your trusted Caddy/CDN. The provided Caddy route overwrites `X-Real-IP` with the connecting address. If the Node port is exposed directly to the internet, leave this setting `false`.
+
+GeoIP is approximate and sometimes lacks a city. A country-only match can still join China's national ranking; province and city rankings appear only when the database returns those fields. Keep the database updated.
+
+### 3. Preserve a direct network path
+
+Running the API in Singapore is supported, but no server can recover the residential IP after an HTTP proxy has replaced it. If the current site origin itself goes through the proxy, same-origin `/geo` sees the proxy exit too.
+
+For rules-based proxy users, bind `/geo` to a separate direct-friendly hostname or put that hostname behind a CDN/load balancer whose route remains direct and preserves the original client IP. Users can enter that hostname in **Geo detection service**. If a trusted upstream already supplies normalized location fields instead of an IP database, set `TRUST_GEO_HEADERS=true` and inject `X-Geo-Country`, `X-Geo-Region-Code`, `X-Geo-Region`, and `X-Geo-City`; the proxy must strip any visitor-supplied copies first.
+
+### 4. Share a dedicated signing secret
 
 Configure the same secret on the mainland probe and the leaderboard service:
 
@@ -234,9 +246,9 @@ For the VPS deployment, place the value in `/opt/token-killer/secrets/geo_assert
 
 Add the frontend origin to the probe's `ALLOWED_ORIGINS`. GitHub Pages is HTTPS, so the probe must also use HTTPS or the browser will block it as mixed content.
 
-### 3. Point the frontend at the probe
+### 5. Point the frontend at the probe
 
-Visitors can enter the probe's base URL under **Settings → Mainland geo probe URL**. To provide a default in a GitHub Pages fork, open **Settings → Secrets and variables → Actions → Variables** and create:
+Visitors enable **Settings → Prefer the mainland China region** and can keep the current-origin `/geo` default or enter another service URL. To enable the switch and provide a default in a GitHub Pages fork, open **Settings → Secrets and variables → Actions → Variables** and create:
 
 ```text
 VITE_MAINLAND_GEO_API_URL=https://geo.example.cn

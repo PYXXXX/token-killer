@@ -6,6 +6,7 @@ import process from 'node:process'
 import { Readable } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import worker from '../worker/index.js'
+import { lookupGeoContext, openGeoIpDatabase, requestClientIp } from './geo.js'
 import { SQLiteD1Database } from './sqlite.js'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -16,6 +17,8 @@ const database = new SQLiteD1Database(
   process.env.DATABASE_PATH || path.join(root, 'data', 'token-killer.sqlite'),
   { migrationsDirectory: path.join(root, 'migrations') },
 )
+const geoIpDatabase = openGeoIpDatabase(process.env.GEOIP_DATABASE_PATH)
+const trustProxyIpHeaders = String(process.env.TRUST_PROXY_IP_HEADERS || '').toLowerCase() === 'true'
 
 const env = {
   TOKEN_KILLER_DB: database,
@@ -25,6 +28,7 @@ const env = {
   GEMINI_OAUTH_CLIENT_SECRET: secretEnvironment('GEMINI_OAUTH_CLIENT_SECRET'),
   ALLOWED_ORIGINS: process.env.ALLOWED_ORIGINS || '',
   TRUST_GEO_HEADERS: process.env.TRUST_GEO_HEADERS || '',
+  GEOIP_DATABASE_AVAILABLE: geoIpDatabase ? 'true' : 'false',
   STORAGE_KIND: 'sqlite',
 }
 
@@ -52,7 +56,9 @@ function clientIp(headers) {
 }
 
 function rateLimit(pathname, headers) {
-  const group = pathname.startsWith('/api/subscription/')
+  const group = pathname === '/geo'
+    ? ['geo', 120]
+    : pathname.startsWith('/api/subscription/')
     ? ['subscription', 30]
     : pathname.startsWith('/api/oauth/')
       ? ['oauth', 120]
@@ -135,6 +141,11 @@ async function handle(request, response) {
     body,
     signal: controller.signal,
   })
+  if (['/geo', '/api/geo/assertion'].includes(url.pathname) && geoIpDatabase) {
+    const ip = requestClientIp(request, headers, trustProxyIpHeaders)
+    const context = lookupGeoContext(geoIpDatabase, ip)
+    if (context) Object.defineProperty(webRequest, 'cf', { configurable: true, value: context })
+  }
   const webResponse = await worker.fetch(webRequest, env)
 
   response.statusCode = webResponse.status
