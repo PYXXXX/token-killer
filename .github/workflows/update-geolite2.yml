@@ -1,0 +1,71 @@
+name: Update GeoLite2 City
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 2,5"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: update-geolite2-city
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      VPS_HOST: 43.134.54.201
+      VPS_USER: ubuntu
+
+    steps:
+      - name: Download GeoLite2 City
+        env:
+          MAXMIND_ACCOUNT_ID: ${{ secrets.MAXMIND_ACCOUNT_ID }}
+          MAXMIND_LICENSE_KEY: ${{ secrets.MAXMIND_LICENSE_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/geolite2"
+          curl \
+            --fail \
+            --location \
+            --retry 3 \
+            --retry-all-errors \
+            --silent \
+            --show-error \
+            --user "${MAXMIND_ACCOUNT_ID}:${MAXMIND_LICENSE_KEY}" \
+            "https://download.maxmind.com/geoip/databases/GeoLite2-City/download?suffix=tar.gz" \
+            --output "${RUNNER_TEMP}/geolite2/GeoLite2-City.tar.gz"
+          tar -xzf "${RUNNER_TEMP}/geolite2/GeoLite2-City.tar.gz" \
+            -C "${RUNNER_TEMP}/geolite2"
+          mmdb_path="$(find "${RUNNER_TEMP}/geolite2" -type f -name GeoLite2-City.mmdb -print -quit)"
+          test -n "${mmdb_path}"
+          test "$(stat -c '%s' "${mmdb_path}")" -ge 1000000
+          tail -c 256 "${mmdb_path}" | LC_ALL=C grep -aFq "MaxMind.com"
+          mv "${mmdb_path}" "${RUNNER_TEMP}/GeoLite2-City.mmdb"
+
+      - name: Configure restricted SSH access
+        env:
+          GEOIP_DEPLOY_SSH_KEY: ${{ secrets.GEOIP_DEPLOY_SSH_KEY }}
+          GEOIP_DEPLOY_KNOWN_HOSTS: ${{ secrets.GEOIP_DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          install -d -m 0700 "${HOME}/.ssh"
+          printf '%s\n' "${GEOIP_DEPLOY_SSH_KEY}" >"${HOME}/.ssh/geoip_deploy"
+          chmod 0600 "${HOME}/.ssh/geoip_deploy"
+          printf '%s\n' "${GEOIP_DEPLOY_KNOWN_HOSTS}" >"${HOME}/.ssh/known_hosts"
+          chmod 0600 "${HOME}/.ssh/known_hosts"
+
+      - name: Install database on VPS
+        run: |
+          set -euo pipefail
+          ssh \
+            -T \
+            -i "${HOME}/.ssh/geoip_deploy" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "${VPS_USER}@${VPS_HOST}" \
+            <"${RUNNER_TEMP}/GeoLite2-City.mmdb"

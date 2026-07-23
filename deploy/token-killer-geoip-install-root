@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly GEOIP_DIR="/opt/token-killer/geoip"
+readonly GEOIP_FILE="${GEOIP_DIR}/GeoLite2-City.mmdb"
+readonly CONTAINER_NAME="token-killer-api"
+
+install -d -o root -g 1000 -m 0750 "${GEOIP_DIR}"
+tmp_file="$(mktemp "${GEOIP_DIR}/.GeoLite2-City.mmdb.XXXXXX")"
+trap 'rm -f "${tmp_file}"' EXIT
+
+cat >"${tmp_file}"
+
+file_size="$(stat -c '%s' "${tmp_file}")"
+if (( file_size < 1000000 )); then
+  echo "Rejected GeoLite2 database: file is unexpectedly small." >&2
+  exit 1
+fi
+
+if ! tail -c 256 "${tmp_file}" | LC_ALL=C grep -aFq "MaxMind.com"; then
+  echo "Rejected GeoLite2 database: MMDB metadata marker is missing." >&2
+  exit 1
+fi
+
+chown root:1000 "${tmp_file}"
+chmod 0640 "${tmp_file}"
+mv -f "${tmp_file}" "${GEOIP_FILE}"
+trap - EXIT
+
+docker restart "${CONTAINER_NAME}" >/dev/null
+
+for _ in {1..30}; do
+  health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "${CONTAINER_NAME}")"
+  if [[ "${health}" == "healthy" || "${health}" == "running" ]]; then
+    echo "GeoLite2 City installed; ${CONTAINER_NAME} is ${health}."
+    exit 0
+  fi
+  sleep 1
+done
+
+echo "${CONTAINER_NAME} did not become healthy after the GeoLite2 update." >&2
+exit 1
