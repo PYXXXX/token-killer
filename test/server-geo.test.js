@@ -35,5 +35,17 @@ test('converts a MaxMind city response into Worker geo metadata', () => {
     city: '杭州市',
   })
   assert.deepEqual(lookupGeoContext({ city: () => response }, '203.0.113.8'), geoContextFromCity(response))
-  assert.equal(lookupGeoContext({ city: () => { throw new Error('not found') } }, '203.0.113.8'), null)
+  assert.deepEqual(lookupGeoContext({
+    city: () => { throw new Error('wrong database type') },
+    country: () => ({ country: { isoCode: 'CN' } }),
+  }, '203.0.113.8'), {
+    country: 'CN',
+    regionCode: '',
+    region: '',
+    city: '',
+  })
+  assert.equal(lookupGeoContext({
+    city: () => { throw new Error('not found') },
+    country: () => { throw new Error('not found') },
+  }, '203.0.113.8'), null)
 })

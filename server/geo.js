@@ -43,9 +43,13 @@ export function openGeoIpDatabase(filename) {
 
 export function lookupGeoContext(reader, ip) {
   if (!reader || !ip) return null
-  try {
-    return geoContextFromCity(reader.city(ip))
-  } catch {
-    return null
+  for (const method of ['city', 'country']) {
+    if (typeof reader[method] !== 'function') continue
+    try {
+      return geoContextFromCity(reader[method](ip))
+    } catch {
+      // A country database rejects city lookups, so fall back to country().
+    }
   }
+  return null
 }

@@ -8,12 +8,12 @@
 - 环境变量：`/opt/token-killer/deploy/vps/.env`
 - 排行榜密钥：`/opt/token-killer/secrets/leaderboard_hmac_secret`
 - 大陆地区凭证密钥：`/opt/token-killer/secrets/geo_assertion_hmac_secret`
-- GeoLite2 City 数据库：`/opt/token-killer/geoip/GeoLite2-City.mmdb`
+- GeoLite2 Country 数据库：`/opt/token-killer/geoip/GeoLite2-Country.mmdb`
 - SQLite Docker volume：`token-killer-data`
 - 数据库备份：`/opt/token-killer/backups`
 - Caddy 配置：`/opt/cliproxyapi/caddy/Caddyfile`
 
-若这台 VPS 还承担大陆赛区探测，请参阅[部署指南](../../docs/deployment.zh-CN.md#可选优先识别大陆直连地区)。Node 服务可以用本地 GeoLite2 City 数据库查询 Caddy 传入的来源 IP；只有上游可信代理会清除访客输入并注入经过校验的 `X-Geo-*` Header 时，才可改用 `TRUST_GEO_HEADERS=true`。
+若这台 VPS 还承担大陆赛区探测，请参阅[部署指南](../../docs/deployment.zh-CN.md#可选优先识别大陆直连地区)。Node 服务可以用本地 GeoLite2 Country 或 City 数据库查询 Caddy 传入的来源 IP；只有上游可信代理会清除访客输入并注入经过校验的 `X-Geo-*` Header 时，才可改用 `TRUST_GEO_HEADERS=true`。
 
 ## 常用命令
 

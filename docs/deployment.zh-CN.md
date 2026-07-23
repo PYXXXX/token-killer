@@ -209,18 +209,18 @@ Token Killer 可以先向一个大陆可直连地址申请短时签名地区凭�
 
 ### 2. 让新加坡 VPS 具备本地 IP 地区识别
 
-普通 Node 服务没有 Cloudflare 的 `request.cf`。为了让新加坡 VPS 上的 `/geo` 能自行工作，Token Killer 现在支持通过 MaxMind 官方 Node 读取器在本机查询 GeoLite2 City 或 GeoIP2 City `.mmdb` 数据库。整个查询留在 VPS 内，不会把访客 IP 再发送给其他地区查询 API。
+普通 Node 服务没有 Cloudflare 的 `request.cf`。为了让新加坡 VPS 上的 `/geo` 能自行工作，Token Killer 现在支持通过 MaxMind 官方 Node 读取器在本机查询 GeoLite2 Country 或 City `.mmdb` 数据库。整个查询留在 VPS 内，不会把访客 IP 再发送给其他地区查询 API。Country 数据库已经足够判断大陆/非大陆；只有确实需要省市排行榜、且 MaxMind 允许所在地区下载时才需要 City 数据库。
 
-从 [MaxMind](https://dev.maxmind.com/geoip/geolite2-free-geolocation-data) 下载最新城市数据库，并放到：
+从 [MaxMind](https://dev.maxmind.com/geoip/geolite2-free-geolocation-data) 下载最新国家数据库，并放到：
 
 ```text
-/opt/token-killer/geoip/GeoLite2-City.mmdb
+/opt/token-killer/geoip/GeoLite2-Country.mmdb
 ```
 
 仓库提供的 Compose 文件会只读挂载该目录。在 `deploy/vps/.env` 中保留：
 
 ```env
-GEOIP_DATABASE_PATH=/geoip/GeoLite2-City.mmdb
+GEOIP_DATABASE_PATH=/geoip/GeoLite2-Country.mmdb
 TRUST_PROXY_IP_HEADERS=true
 ```
 

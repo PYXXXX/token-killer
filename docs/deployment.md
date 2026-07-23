@@ -209,18 +209,18 @@ The settings switch is off by default unless `VITE_MAINLAND_GEO_API_URL` was con
 
 ### 2. Give a Singapore VPS a local GeoIP database
 
-A Node service does not receive Cloudflare's `request.cf`. To make `/geo` work directly on a Singapore VPS, Token Killer can read a GeoLite2 City or GeoIP2 City `.mmdb` file locally through MaxMind's official Node reader. The lookup stays on the VPS and does not send the visitor's IP to another geolocation API.
+A Node service does not receive Cloudflare's `request.cf`. To make `/geo` work directly on a Singapore VPS, Token Killer can read a GeoLite2 Country or City `.mmdb` file locally through MaxMind's official Node reader. The lookup stays on the VPS and does not send the visitor's IP to another geolocation API. The Country database is sufficient for the mainland/non-mainland assertion; use City only if province and city rankings are required and MaxMind permits that download for your region.
 
-Download a current city database from [MaxMind](https://dev.maxmind.com/geoip/geolite2-free-geolocation-data), then place it at:
+Download a current country database from [MaxMind](https://dev.maxmind.com/geoip/geolite2-free-geolocation-data), then place it at:
 
 ```text
-/opt/token-killer/geoip/GeoLite2-City.mmdb
+/opt/token-killer/geoip/GeoLite2-Country.mmdb
 ```
 
 The provided Compose file mounts that directory read-only. Keep these values in `deploy/vps/.env`:
 
 ```env
-GEOIP_DATABASE_PATH=/geoip/GeoLite2-City.mmdb
+GEOIP_DATABASE_PATH=/geoip/GeoLite2-Country.mmdb
 TRUST_PROXY_IP_HEADERS=true
 ```
 

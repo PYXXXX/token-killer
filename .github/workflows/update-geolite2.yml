@@ -1,4 +1,4 @@
-name: Update GeoLite2 City
+name: Update GeoLite2 Country
 
 on:
   workflow_dispatch:
@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: update-geolite2-city
+  group: update-geolite2-country
   cancel-in-progress: false
 
 jobs:
@@ -21,7 +21,7 @@ jobs:
       VPS_USER: ubuntu
 
     steps:
-      - name: Download GeoLite2 City
+      - name: Download GeoLite2 Country
         env:
           MAXMIND_ACCOUNT_ID: ${{ secrets.MAXMIND_ACCOUNT_ID }}
           MAXMIND_LICENSE_KEY: ${{ secrets.MAXMIND_LICENSE_KEY }}
@@ -36,15 +36,15 @@ jobs:
             --silent \
             --show-error \
             --user "${MAXMIND_ACCOUNT_ID}:${MAXMIND_LICENSE_KEY}" \
-            "https://download.maxmind.com/geoip/databases/GeoLite2-City/download?suffix=tar.gz" \
-            --output "${RUNNER_TEMP}/geolite2/GeoLite2-City.tar.gz"
-          tar -xzf "${RUNNER_TEMP}/geolite2/GeoLite2-City.tar.gz" \
+            "https://download.maxmind.com/geoip/databases/GeoLite2-Country/download?suffix=tar.gz" \
+            --output "${RUNNER_TEMP}/geolite2/GeoLite2-Country.tar.gz"
+          tar -xzf "${RUNNER_TEMP}/geolite2/GeoLite2-Country.tar.gz" \
             -C "${RUNNER_TEMP}/geolite2"
-          mmdb_path="$(find "${RUNNER_TEMP}/geolite2" -type f -name GeoLite2-City.mmdb -print -quit)"
+          mmdb_path="$(find "${RUNNER_TEMP}/geolite2" -type f -name GeoLite2-Country.mmdb -print -quit)"
           test -n "${mmdb_path}"
           test "$(stat -c '%s' "${mmdb_path}")" -ge 1000000
           tail -c 256 "${mmdb_path}" | LC_ALL=C grep -aFq "MaxMind.com"
-          mv "${mmdb_path}" "${RUNNER_TEMP}/GeoLite2-City.mmdb"
+          mv "${mmdb_path}" "${RUNNER_TEMP}/GeoLite2-Country.mmdb"
 
       - name: Configure restricted SSH access
         env:
@@ -68,4 +68,4 @@ jobs:
             -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes \
             "${VPS_USER}@${VPS_HOST}" \
-            <"${RUNNER_TEMP}/GeoLite2-City.mmdb"
+            <"${RUNNER_TEMP}/GeoLite2-Country.mmdb"
