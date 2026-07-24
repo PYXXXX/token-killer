@@ -122,6 +122,7 @@ npm run build
 
 - [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api)：消费版 OAuth 与上游兼容流程的主要参考。
 - [OpenRouter Models API](https://openrouter.ai/docs/api/api-reference/models/get-models)：模型目录与价格数据来源。
+- [Countries States Cities Database](https://github.com/dr5hn/countries-states-cities-database)（ODbL 1.0）与 [province-city-china](https://github.com/uiwjs/province-city-china)（MIT）：静态地区与城市选择目录。
 - [Cloudflare Workers 与 D1](https://developers.cloudflare.com/)：可选的 OAuth、排行榜与地区服务运行环境。
 
 ## License

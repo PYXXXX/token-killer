@@ -2494,6 +2494,18 @@ main {
   align-items: end;
 }
 
+.manual-region-picker {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: start;
+  gap: 12px;
+}
+
+.manual-region-picker .field {
+  align-content: start;
+}
+
 .data-actions {
   display: flex;
   justify-content: flex-end;
@@ -2738,6 +2750,10 @@ main {
   .rank-identity {
     border-right: 0;
     border-bottom: 1px solid var(--line);
+  }
+
+  .manual-region-picker {
+    grid-template-columns: 1fr;
   }
 }
 

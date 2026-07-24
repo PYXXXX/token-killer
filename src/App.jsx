@@ -43,6 +43,7 @@ import {
   startGeminiLogin,
   startGrokLogin,
 } from './lib/accounts.js'
+import { subscriptionPlanLabel } from './lib/accountLabels.js'
 import {
   ACCOUNT_PROVIDER_TO_SETTINGS,
   API_FORMATS,
@@ -59,7 +60,8 @@ import { formatDuration, formatMoney, formatTokens, percent, todayKey } from './
 import { checkGeoService, defaultGeoEndpoint } from './lib/geo.js'
 import { createLeaderboardSession, getLeaderboard, getLeaderboardProfile, submitLeaderboardRun } from './lib/leaderboard.js'
 import { RANK_TIERS, rankForTokens } from './lib/ranks.js'
-import { EMPTY_MANUAL_REGION, chinaRegionOptions, countryOptions, sanitizeManualRegion } from './lib/regions.js'
+import { EMPTY_MANUAL_REGION, countryOptions, sanitizeManualRegion } from './lib/regions.js'
+import { loadCityOptions, loadRegionOptions } from './lib/regionCatalog.js'
 import {
   clearLocalData,
   clearProviderBlocklist,
@@ -276,7 +278,9 @@ function ProviderFields({
             <select value={settings.selectedAccountId} onChange={(event) => updateSettings({ selectedAccountId: event.target.value })}>
               <option value="">请选择订阅账号</option>
               {accounts.filter((account) => account.provider === accountProviderForSettings(settings.provider)).map((account) => (
-                <option value={account.id} key={account.id}>{account.displayName} {account.planType ? `· ${account.planType}` : ''}</option>
+                <option value={account.id} key={account.id}>
+                  {account.displayName} {account.planType ? `· ${subscriptionPlanLabel(account.provider, account.planType)}` : ''}
+                </option>
               ))}
             </select>
           </Field>
@@ -1327,7 +1331,10 @@ function SubscriptionAccountManager({ settings, updateSettings, accountsState, r
                 updateSettings({ provider, targetMode: 'tokens', selectedAccountId: account.id, model: settings.provider === provider ? settings.model : PROVIDERS[provider].model })
               }}>
                 <span className="account-provider-mark">{account.provider.slice(0, 2).toUpperCase()}</span>
-                <span><strong>{account.displayName}</strong><small>{account.planType || account.provider} · 自动续期</small></span>
+                <span>
+                  <strong>{account.displayName}</strong>
+                  <small>{subscriptionPlanLabel(account.provider, account.planType)} · 自动续期</small>
+                </span>
                 {settings.selectedAccountId === account.id ? <Check size={18} weight="bold" /> : null}
               </button>
               <button className="account-delete" type="button" aria-label={`断开 ${account.displayName}`} disabled={deletingId === account.id} onClick={() => removeAccount(account)}><Trash size={17} /></button>
@@ -1365,14 +1372,120 @@ function SettingsPanel({
 }) {
   const geoStatusId = useId()
   const [geoServiceState, setGeoServiceState] = useState({ status: 'idle', located: false, context: null, error: '' })
+  const [manualRegionCatalog, setManualRegionCatalog] = useState({ status: 'idle', options: [], error: '' })
+  const [manualCityCatalog, setManualCityCatalog] = useState({ status: 'idle', options: [], error: '' })
   const manualRegion = sanitizeManualRegion(settings.manualRegion)
+  const manualCountryCode = manualRegion.countryCode
+  const manualRegionCode = manualRegion.regionCode
+  const manualRegionName = manualRegion.regionName
+  const manualCityName = manualRegion.cityName
   const manualCountryOptions = useMemo(() => countryOptions('zh-CN'), [])
-  const manualChinaRegionOptions = useMemo(() => chinaRegionOptions('zh-CN'), [])
-  const manualRegionIsProvinceOnly = manualRegion.countryCode === 'CN' && ['HK', 'MO'].includes(manualRegion.regionCode)
+  const manualRegionIsProvinceOnly = manualCountryCode === 'CN' && ['HK', 'MO'].includes(manualRegionCode)
+  const manualRegionRequired = manualRegionCatalog.options.length > 0
 
   useEffect(() => {
     setGeoServiceState({ status: 'idle', located: false, context: null, error: '' })
   }, [settings.autoSelectRegion, settings.geoApiUrl])
+
+  useEffect(() => {
+    let active = true
+    const countryCode = manualCountryCode
+    setManualCityCatalog({ status: 'idle', options: [], error: '' })
+    if (!countryCode) {
+      setManualRegionCatalog({ status: 'ready', options: [], error: '' })
+      return () => {
+        active = false
+      }
+    }
+
+    setManualRegionCatalog({ status: 'loading', options: [], error: '' })
+    loadRegionOptions(countryCode, 'zh-CN')
+      .then((options) => {
+        if (!active) return
+        setManualRegionCatalog({ status: 'ready', options, error: '' })
+        if (manualRegionCode && !options.some((option) => option.value === manualRegionCode)) {
+          updateSettings({
+            manualRegion: sanitizeManualRegion({
+              countryCode,
+              regionCode: '',
+              regionName: '',
+              cityName: '',
+            }),
+          })
+        }
+      })
+      .catch(() => {
+        if (!active) return
+        setManualRegionCatalog({ status: 'error', options: [], error: '一级行政区目录加载失败' })
+      })
+
+    return () => {
+      active = false
+    }
+  }, [manualCountryCode, manualRegionCode, updateSettings])
+
+  useEffect(() => {
+    let active = true
+    const countryCode = manualCountryCode
+    const regionCode = manualRegionCode
+    if (
+      !countryCode ||
+      manualRegionIsProvinceOnly ||
+      manualRegionCatalog.status !== 'ready' ||
+      (manualRegionRequired && !regionCode)
+    ) {
+      setManualCityCatalog({ status: 'ready', options: [], error: '' })
+      return () => {
+        active = false
+      }
+    }
+
+    setManualCityCatalog({ status: 'loading', options: [], error: '' })
+    loadCityOptions(countryCode, regionCode)
+      .then((options) => {
+        if (!active) return
+        setManualCityCatalog({ status: 'ready', options, error: '' })
+      })
+      .catch(() => {
+        if (!active) return
+        setManualCityCatalog({ status: 'error', options: [], error: '城市目录加载失败' })
+      })
+
+    return () => {
+      active = false
+    }
+  }, [
+    manualCountryCode,
+    manualRegionCode,
+    manualRegionCatalog.status,
+    manualRegionRequired,
+    manualRegionIsProvinceOnly,
+  ])
+
+  useEffect(() => {
+    if (
+      manualCityCatalog.status !== 'ready' ||
+      !manualCityName ||
+      manualCityCatalog.options.some((option) => option.value === manualCityName)
+    ) return
+
+    updateSettings({
+      manualRegion: sanitizeManualRegion({
+        countryCode: manualCountryCode,
+        regionCode: manualRegionCode,
+        regionName: manualRegionName,
+        cityName: '',
+      }),
+    })
+  }, [
+    manualCityCatalog.options,
+    manualCityCatalog.status,
+    manualCityName,
+    manualCountryCode,
+    manualRegionCode,
+    manualRegionName,
+    updateSettings,
+  ])
 
   const handleGeoServiceCheck = async () => {
     if (!settings.autoSelectRegion) return
@@ -1640,7 +1753,7 @@ function SettingsPanel({
               </div>
             </Field>
           ) : (
-            <>
+            <div className="manual-region-picker">
               <Field label="国家或地区">
                 <select
                   value={manualRegion.countryCode}
@@ -1657,48 +1770,65 @@ function SettingsPanel({
                   ))}
                 </select>
               </Field>
-              {manualRegion.countryCode === 'CN' ? (
-                <Field label="省级赛区">
-                  <select
-                    value={manualRegion.regionCode}
-                    onChange={(event) => {
-                      const option = manualChinaRegionOptions.find((item) => item.value === event.target.value)
-                      updateManualRegion({
-                        regionCode: event.target.value,
-                        regionName: option?.label || '',
-                        cityName: ['HK', 'MO'].includes(event.target.value) ? '' : manualRegion.cityName,
-                      })
-                    }}
-                  >
-                    <option value="">仅参加中国赛区</option>
-                    {manualChinaRegionOptions.map((option) => (
-                      <option value={option.value} key={option.value}>{option.label}</option>
-                    ))}
-                  </select>
-                </Field>
-              ) : (
-                <Field label="州 / 省 / 一级行政区" hint="可选。请使用当地通用名称，避免同一赛区出现不同写法。">
-                  <input
-                    type="text"
-                    value={manualRegion.regionName}
-                    disabled={!manualRegion.countryCode}
-                    maxLength="80"
-                    onChange={(event) => updateManualRegion({ regionCode: '', regionName: event.target.value })}
-                    placeholder="例如 California"
-                  />
-                </Field>
-              )}
-              <Field label="城市" hint={manualRegionIsProvinceOnly ? '香港和澳门仅支持省级赛区。' : '可选。留空时只参加上一级赛区。'}>
-                <input
-                  type="text"
-                  value={manualRegion.cityName}
-                  disabled={!manualRegion.countryCode || manualRegionIsProvinceOnly}
-                  maxLength="80"
-                  onChange={(event) => updateManualRegion({ cityName: event.target.value })}
-                  placeholder="例如 San Francisco"
-                />
+              <Field label={manualRegion.countryCode === 'CN' ? '省级赛区' : '州 / 省 / 一级行政区'}>
+                <select
+                  value={manualRegion.regionCode}
+                  disabled={!manualRegion.countryCode || manualRegionCatalog.status === 'loading' || !manualRegionCatalog.options.length}
+                  onChange={(event) => {
+                    const option = manualRegionCatalog.options.find((item) => item.value === event.target.value)
+                    updateManualRegion({
+                      regionCode: event.target.value,
+                      regionName: option?.label || '',
+                      cityName: '',
+                    })
+                  }}
+                >
+                  <option value="">
+                    {!manualRegion.countryCode
+                      ? '请先选择国家或地区'
+                      : manualRegionCatalog.status === 'loading'
+                        ? '正在加载地区…'
+                        : manualRegionCatalog.error || '仅参加国家赛区'}
+                  </option>
+                  {manualRegionCatalog.options.map((option) => (
+                    <option value={option.value} key={option.value}>{option.label}</option>
+                  ))}
+                </select>
               </Field>
-            </>
+              <Field
+                label="城市"
+                hint={manualRegionIsProvinceOnly
+                  ? '香港和澳门仅支持省级赛区。'
+                  : '城市来自行政区目录，留空时只参加上一级赛区。'}
+              >
+                <select
+                  value={manualRegion.cityName}
+                  disabled={
+                    !manualRegion.countryCode ||
+                    manualRegionIsProvinceOnly ||
+                    manualCityCatalog.status === 'loading' ||
+                    (manualRegionRequired && !manualRegion.regionCode) ||
+                    !manualCityCatalog.options.length
+                  }
+                  onChange={(event) => updateManualRegion({ cityName: event.target.value })}
+                >
+                  <option value="">
+                    {!manualRegion.countryCode
+                      ? '请先选择国家或地区'
+                      : manualRegionIsProvinceOnly
+                        ? '该赛区不细分城市'
+                        : manualRegionRequired && !manualRegion.regionCode
+                          ? '请先选择一级行政区'
+                          : manualCityCatalog.status === 'loading'
+                            ? '正在加载城市…'
+                            : manualCityCatalog.error || '仅参加上一级赛区'}
+                  </option>
+                  {manualCityCatalog.options.map((option) => (
+                    <option value={option.value} key={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </Field>
+            </div>
           )}
           <Field label="公开汇总" hint="公开 token、费用、轮数、模型和时长。">
             <label className="toggle-line">

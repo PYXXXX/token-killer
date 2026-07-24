@@ -19,8 +19,10 @@
     "db:migrate:remote": "wrangler d1 migrations apply TOKEN_KILLER_DB --remote"
   },
   "dependencies": {
+    "@countrystatecity/countries-browser": "^1.0.2",
     "@maxmind/geoip2-node": "^7.1.0",
     "@phosphor-icons/react": "^2.1.10",
+    "@province-city-china/city": "^8.5.8",
     "better-sqlite3": "^12.11.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"

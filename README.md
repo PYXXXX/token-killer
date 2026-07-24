@@ -124,6 +124,7 @@ When sharing or discussing Token Killer on LINUX DO, please follow the community
 
 - [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api): the main reference for consumer-subscription OAuth and upstream compatibility.
 - [OpenRouter Models API](https://openrouter.ai/docs/api/api-reference/models/get-models): model catalog and pricing data.
+- [Countries States Cities Database](https://github.com/dr5hn/countries-states-cities-database) (ODbL 1.0) and [province-city-china](https://github.com/uiwjs/province-city-china) (MIT): the static region and city selectors.
 - [Cloudflare Workers and D1](https://developers.cloudflare.com/): the optional runtime for OAuth, leaderboards, and regional services.
 
 ## License
