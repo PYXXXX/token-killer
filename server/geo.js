@@ -2,6 +2,39 @@ import fs from 'node:fs'
 import { isIP } from 'node:net'
 import { Reader } from '@maxmind/geoip2-node'
 
+const GEO_ASSERTION_PATHS = new Set(['/geo', '/api/geo/assertion'])
+const INTERNAL_GEO_HEADERS = {
+  country: 'x-token-killer-geo-country',
+  region: 'x-token-killer-geo-region',
+  regionCode: 'x-token-killer-geo-region-code',
+  city: 'x-token-killer-geo-city',
+}
+
+function cleanGeoText(value, maxLength) {
+  return String(value || '')
+    .replace(/\p{Cc}/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, maxLength)
+}
+
+function normalizedRegionCode(value, country) {
+  const code = cleanGeoText(value, 16).toUpperCase()
+  if (!/^[A-Z0-9-]{1,12}$/.test(code)) return ''
+  return code.replace(new RegExp(`^${country}-`), '')
+}
+
+function comparableRegionName(value) {
+  return cleanGeoText(value, 80)
+    .normalize('NFKC')
+    .toLocaleLowerCase('en')
+    .replace(/[\s_-]+/g, '')
+}
+
+export function isGeoAssertionPath(pathname) {
+  return GEO_ASSERTION_PATHS.has(String(pathname || ''))
+}
+
 export function normalizeClientIp(value) {
   let ip = String(value || '').split(',')[0].trim()
   if (!ip) return ''
@@ -29,9 +62,48 @@ export function geoContextFromCity(response) {
   const subdivision = response?.subdivisions?.[0] || response?.mostSpecificSubdivision || null
   return {
     country,
-    regionCode: String(subdivision?.isoCode || ''),
-    region: String(subdivision?.names?.['zh-CN'] || subdivision?.names?.en || ''),
-    city: String(response?.city?.names?.['zh-CN'] || response?.city?.names?.en || ''),
+    regionCode: normalizedRegionCode(subdivision?.isoCode, country),
+    region: cleanGeoText(subdivision?.names?.['zh-CN'] || subdivision?.names?.en, 80),
+    city: cleanGeoText(response?.city?.names?.['zh-CN'] || response?.city?.names?.en, 80),
+  }
+}
+
+export function trustedCloudflareGeoContext(headers, trusted = false) {
+  if (!trusted || !headers || typeof headers.get !== 'function') return null
+  const country = cleanGeoText(headers.get(INTERNAL_GEO_HEADERS.country), 2)
+  if (!/^[A-Z]{2}$/.test(country) || country === 'XX') return null
+
+  return {
+    country,
+    regionCode: normalizedRegionCode(headers.get(INTERNAL_GEO_HEADERS.regionCode), country),
+    region: cleanGeoText(headers.get(INTERNAL_GEO_HEADERS.region), 80),
+    city: cleanGeoText(headers.get(INTERNAL_GEO_HEADERS.city), 80),
+  }
+}
+
+export function mergeGeoContexts(cloudflare, maxMind) {
+  if (!cloudflare?.country) return maxMind?.country ? { ...maxMind } : null
+  if (!maxMind?.country || cloudflare.country !== maxMind.country) return { ...cloudflare }
+
+  const cloudflareRegionCode = normalizedRegionCode(cloudflare.regionCode, cloudflare.country)
+  const maxMindRegionCode = normalizedRegionCode(maxMind.regionCode, maxMind.country)
+  const cloudflareRegionName = comparableRegionName(cloudflare.region)
+  const maxMindRegionName = comparableRegionName(maxMind.region)
+  const regionCodeConflict = cloudflareRegionCode
+    && maxMindRegionCode
+    && cloudflareRegionCode !== maxMindRegionCode
+  const regionNameConflict = !regionCodeConflict
+    && !(cloudflareRegionCode && maxMindRegionCode)
+    && cloudflareRegionName
+    && maxMindRegionName
+    && cloudflareRegionName !== maxMindRegionName
+  const regionConflict = Boolean(regionCodeConflict || regionNameConflict)
+
+  return {
+    country: cloudflare.country,
+    regionCode: cloudflareRegionCode || (regionConflict ? '' : maxMindRegionCode),
+    region: cleanGeoText(cloudflare.region, 80) || (regionConflict ? '' : cleanGeoText(maxMind.region, 80)),
+    city: cleanGeoText(cloudflare.city, 80) || (regionConflict ? '' : cleanGeoText(maxMind.city, 80)),
   }
 }
 

@@ -1,50 +1,60 @@
 burn.bilirec.com {
-    encode zstd gzip
+	encode zstd gzip
 
-    request_body {
-        max_size 1MB
-    }
+	request_body {
+		max_size 1MB
+	}
 
-    @geoCloudflare {
-        path /geo
-        remote_ip 173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18 108.162.192.0/18 190.93.240.0/20 188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 104.24.0.0/14 172.64.0.0/13 131.0.72.0/22 2400:cb00::/32 2606:4700::/32 2803:f800::/32 2405:b500::/32 2405:8100::/32 2a06:98c0::/29 2c0f:f248::/32
-    }
+	@geoCloudflare {
+		path /geo /api/geo/assertion
+		remote_ip 173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18 108.162.192.0/18 190.93.240.0/20 188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 104.24.0.0/14 172.64.0.0/13 131.0.72.0/22 2400:cb00::/32 2606:4700::/32 2803:f800::/32 2405:b500::/32 2405:8100::/32 2a06:98c0::/29 2c0f:f248::/32
+	}
 
-    route {
-        handle @geoCloudflare {
-            reverse_proxy token-killer-api:8787 {
-                header_up X-Real-IP {http.request.header.CF-Connecting-IP}
-            }
-        }
+	@geoDirect path /geo /api/geo/assertion
 
-        handle /geo {
-            reverse_proxy token-killer-api:8787 {
-                header_up X-Real-IP {remote_host}
-            }
-        }
+	route {
+		handle @geoCloudflare {
+			reverse_proxy token-killer-api:8787 {
+				header_up X-Real-IP {http.request.header.CF-Connecting-IP}
+				header_up X-Token-Killer-Geo-Country {http.request.header.CF-IPCountry}
+				header_up X-Token-Killer-Geo-Region {http.request.header.CF-Region}
+				header_up X-Token-Killer-Geo-Region-Code {http.request.header.CF-Region-Code}
+				header_up X-Token-Killer-Geo-City {http.request.header.CF-IPCity}
+			}
+		}
 
-        handle /api/* {
-            reverse_proxy token-killer-api:8787 {
-                flush_interval -1
-                header_up X-Real-IP {remote_host}
-            }
-        }
+		handle @geoDirect {
+			reverse_proxy token-killer-api:8787 {
+				header_up X-Real-IP {remote_host}
+				header_up -X-Token-Killer-Geo-Country
+				header_up -X-Token-Killer-Geo-Region
+				header_up -X-Token-Killer-Geo-Region-Code
+				header_up -X-Token-Killer-Geo-City
+			}
+		}
 
-        handle {
-            rewrite * /token-killer{uri}
-            reverse_proxy https://pyxxxx.github.io {
-                header_up Host pyxxxx.github.io
-            }
-        }
-    }
+		handle /api/* {
+			reverse_proxy token-killer-api:8787 {
+				flush_interval -1
+				header_up X-Real-IP {remote_host}
+			}
+		}
 
-    log {
-        output file /var/log/caddy/token-killer.log {
-            roll_size 50mb
-            roll_keep 10
-            roll_keep_for 720h
-        }
-        format json
-        level INFO
-    }
+		handle {
+			rewrite * /token-killer{uri}
+			reverse_proxy https://pyxxxx.github.io {
+				header_up Host pyxxxx.github.io
+			}
+		}
+	}
+
+	log {
+		output file /var/log/caddy/token-killer.log {
+			roll_size 50mb
+			roll_keep 10
+			roll_keep_for 720h
+		}
+		format json
+		level INFO
+	}
 }

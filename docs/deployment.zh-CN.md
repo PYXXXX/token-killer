@@ -207,7 +207,23 @@ Token Killer 可以先向专用地址申请短时签名地区凭证，再访问�
 
 “自动选择地区”默认开启。前端会自动填入当前域名的 `/geo`，在访问排行榜前先进行探测，并把结果明确标注为网络出口位置；用户也可以随时换成其他 HTTPS 域名。关闭自动选择后，可以手动指定国家、一级行政区和城市。`VITE_GEO_API_URL` 用于修改默认服务地址，旧的 `VITE_MAINLAND_GEO_API_URL` 构建变量仍然兼容。
 
-### 2. 让新加坡 VPS 具备本地 IP 地区识别
+### 2. 开启 Cloudflare 访客位置 Header
+
+VPS 源站通过 Cloudflare 橙云代理时，请开启 Cloudflare 托管的访客位置 Header：
+
+**Cloudflare Dashboard → 选择 `bilirec.com` → Rules → Settings → Managed Transforms → 开启 “Add visitor location headers”**
+
+仓库提供的 Caddy 片段只会在 TCP 来源属于 Cloudflare 官方 IP 网段时接受这些 Header。Caddy 会覆盖访客自行提交的 `X-Token-Killer-Geo-*` Header，再把 Cloudflare 提供的国家、地区、地区代码和城市转发给 Node；直接访问源站时则会删除全部项目专用地区 Header。
+
+使用仓库提供的 Caddy 私网转发 Node 方案时，在 `deploy/vps/.env` 中保留：
+
+```env
+TRUST_CLOUDFLARE_GEO_HEADERS=true
+```
+
+Node 会优先采用 Cloudflare 的非空字段，只用 MaxMind 补充兼容的缺失字段。双方国家不一致时不会混合；省级信息冲突时也不会用 MaxMind 补充城市。没有开启该 Managed Transform，或 Cloudflare 没有提供可信位置时，会自动保持现有 MaxMind 回退行为。
+
+### 3. 让新加坡 VPS 具备本地 IP 地区识别
 
 普通 Node 服务没有 Cloudflare 的 `request.cf`。为了让新加坡 VPS 上的 `/geo` 能自行工作，Token Killer 支持通过 MaxMind 官方 Node 读取器在本机查询 GeoLite2 City 或 Country `.mmdb` 数据库。整个查询留在 VPS 内，不会把访客 IP 再发送给其他地区查询 API。City 数据库可以提供一级行政区和城市排行榜；Country 数据库足以支持国家排行榜。
 
@@ -222,19 +238,20 @@ Token Killer 可以先向专用地址申请短时签名地区凭证，再访问�
 ```env
 GEOIP_DATABASE_PATH=/geoip/GeoLite2-City.mmdb
 TRUST_PROXY_IP_HEADERS=true
+TRUST_CLOUDFLARE_GEO_HEADERS=true
 ```
 
 只有 Node 端口没有暴露到公网、所有请求都必须经过可信 Caddy/CDN 时，才能开启 `TRUST_PROXY_IP_HEADERS`。仓库提供的 Caddy 路由只在连接来源属于 Cloudflare 官方网段时使用 `CF-Connecting-IP`，其他连接会用实际连接地址覆盖 `X-Real-IP`；如果 Node 端口可以被公网直接访问，应保持为 `false`。
 
 IP 地理定位本身只能近似判断，有时也不会返回城市。只识别出国家时仍可进入对应国家榜；数据库返回一级行政区和城市后才会出现相应地区榜。请定期更新数据库。
 
-### 3. 理解代理环境下的结果
+### 4. 理解代理环境下的结果
 
 API 可以部署在新加坡，但 HTTP 代理替换来源 IP 后，任何服务端代码都无法恢复用户原来的住宅 IP。如果当前站点域名本身会走代理，同域 `/geo` 看到的也仍然是代理出口。
 
 面向规则代理用户时，独立的直连友好域名可能得到不同的网络出口，但网页无法强制某个请求绕过用户代理。用户可以在“地区探测服务”中填写其他域名。如果可信上游已经直接提供规范化地区而不是原始 IP，也可以设置 `TRUST_GEO_HEADERS=true` 并注入 `X-Geo-Country`、`X-Geo-Region-Code`、`X-Geo-Region`、`X-Geo-City`；上游必须先删除访客自行携带的同名 Header。
 
-### 4. 在探测服务和排行榜之间共享专用签名密钥
+### 5. 在探测服务和排行榜之间共享专用签名密钥
 
 两端配置同一个密钥：
 
@@ -246,7 +263,7 @@ npx wrangler secret put GEO_ASSERTION_HMAC_SECRET
 
 探测服务的 `ALLOWED_ORIGINS` 还需要包含前端 Origin。GitHub Pages 使用 HTTPS，因此探测地址也必须是 HTTPS，否则浏览器会按混合内容拦截。
 
-### 5. 让前端使用探测服务
+### 6. 让前端使用探测服务
 
 自动选择地区默认开启。用户可以保留当前域名 `/geo`、填写其他服务地址，或者关闭自动选择并手动指定赛区。若希望自己的 GitHub Pages Fork 使用指定的默认地址，进入仓库 **Settings → Secrets and variables → Actions → Variables**，添加：
 

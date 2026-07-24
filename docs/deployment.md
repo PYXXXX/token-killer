@@ -207,7 +207,23 @@ The included Worker/Node API exposes `POST /geo`; the older `POST /api/geo/asser
 
 **Select region automatically** is enabled by default. The frontend fills in `/geo` on the current origin, checks it before leaderboard calls, and labels the result as a network exit location. A different HTTPS origin can be entered at any time. Turning automatic selection off reveals manual country, first-level region, and city controls. `VITE_GEO_API_URL` changes the default service URL; the legacy `VITE_MAINLAND_GEO_API_URL` build variable is still accepted.
 
-### 2. Give a Singapore VPS a local GeoIP database
+### 2. Enable Cloudflare visitor location headers
+
+When the VPS origin is proxied through Cloudflare, enable Cloudflare's managed visitor-location headers:
+
+**Cloudflare Dashboard → select `bilirec.com` → Rules → Settings → Managed Transforms → enable “Add visitor location headers”**
+
+The provided Caddy snippet accepts these headers only when the TCP peer belongs to Cloudflare's published IP ranges. It overwrites visitor-supplied `X-Token-Killer-Geo-*` headers before forwarding Cloudflare's country, region, region code, and city to Node. Direct requests to the origin have every project-specific geo header removed.
+
+Keep this value in `deploy/vps/.env` when using the provided private Caddy-to-Node topology:
+
+```env
+TRUST_CLOUDFLARE_GEO_HEADERS=true
+```
+
+Node prefers non-empty Cloudflare fields and uses MaxMind only to fill compatible missing fields. It never combines countries, and it will not fill a city from MaxMind when province-level data conflicts. If the managed transform is disabled or Cloudflare supplies no trusted location, the service automatically retains the existing MaxMind behavior.
+
+### 3. Give a Singapore VPS a local GeoIP database
 
 A Node service does not receive Cloudflare's `request.cf`. To make `/geo` work directly on a Singapore VPS, Token Killer can read a GeoLite2 City or Country `.mmdb` file locally through MaxMind's official Node reader. The lookup stays on the VPS and does not send the visitor's IP to another geolocation API. City enables first-level region and city rankings; Country is enough for country-level rankings.
 
@@ -222,19 +238,20 @@ The provided Compose file mounts that directory read-only. Keep these values in 
 ```env
 GEOIP_DATABASE_PATH=/geoip/GeoLite2-City.mmdb
 TRUST_PROXY_IP_HEADERS=true
+TRUST_CLOUDFLARE_GEO_HEADERS=true
 ```
 
 `TRUST_PROXY_IP_HEADERS=true` is safe only when the Node port is private and every request passes through your trusted Caddy/CDN. The provided Caddy route uses `CF-Connecting-IP` only when the connection originates from Cloudflare's published ranges; all other connections overwrite `X-Real-IP` with the actual peer address. If the Node port is exposed directly to the internet, leave this setting `false`.
 
 GeoIP is approximate and sometimes lacks a city. A country-only match can still join its country ranking; region and city rankings appear when the database returns those fields. Keep the database updated.
 
-### 3. Understand proxy results
+### 4. Understand proxy results
 
 Running the API in Singapore is supported, but no server can recover the residential IP after an HTTP proxy has replaced it. If the current site origin itself goes through the proxy, same-origin `/geo` sees the proxy exit too.
 
 For rules-based proxy users, a separate direct-friendly hostname may produce a different network exit, but the browser cannot force a request to bypass its proxy. Users can enter another hostname in **Geo detection service**. If a trusted upstream already supplies normalized location fields instead of an IP database, set `TRUST_GEO_HEADERS=true` and inject `X-Geo-Country`, `X-Geo-Region-Code`, `X-Geo-Region`, and `X-Geo-City`; the proxy must strip any visitor-supplied copies first.
 
-### 4. Share a dedicated signing secret
+### 5. Share a dedicated signing secret
 
 Configure the same secret on the detection service and the leaderboard service:
 
@@ -246,7 +263,7 @@ For the VPS deployment, place the value in `/opt/token-killer/secrets/geo_assert
 
 Add the frontend origin to the probe's `ALLOWED_ORIGINS`. GitHub Pages is HTTPS, so the probe must also use HTTPS or the browser will block it as mixed content.
 
-### 5. Point the frontend at the detection service
+### 6. Point the frontend at the detection service
 
 Automatic selection is enabled by default. Visitors can keep the current-origin `/geo` default, enter another service URL, or turn automatic selection off and choose a region manually. To provide a different default URL in a GitHub Pages fork, open **Settings → Secrets and variables → Actions → Variables** and create:
 

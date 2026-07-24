@@ -13,7 +13,7 @@
 - 数据库备份：`/opt/token-killer/backups`
 - Caddy 配置：`/opt/cliproxyapi/caddy/Caddyfile`
 
-若这台 VPS 还承担地区探测，请参阅[部署指南](../../docs/deployment.zh-CN.md#可选地区探测服务)。Node 服务可以用本地 GeoLite2 Country 或 City 数据库查询 Caddy 传入的网络出口 IP；只有上游可信代理会清除访客输入并注入经过校验的 `X-Geo-*` Header 时，才可改用 `TRUST_GEO_HEADERS=true`。
+若这台 VPS 还承担地区探测，请参阅[部署指南](../../docs/deployment.zh-CN.md#可选地区探测服务)。提供的 Caddy 配置会先确认 TCP 来源属于 Cloudflare 官方网段，再覆盖项目专用地区 Header；Node 优先采用这些 Cloudflare 位置字段，并用本地 GeoLite2 Country 或 City 数据库补充缺失信息。没有开启 Cloudflare 的 “Add visitor location headers” 时会继续使用 MaxMind，不影响地区探测。
 
 ## 常用命令
 

@@ -6,7 +6,14 @@ import process from 'node:process'
 import { Readable } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import worker from '../worker/index.js'
-import { lookupGeoContext, openGeoIpDatabase, requestClientIp } from './geo.js'
+import {
+  isGeoAssertionPath,
+  lookupGeoContext,
+  mergeGeoContexts,
+  openGeoIpDatabase,
+  requestClientIp,
+  trustedCloudflareGeoContext,
+} from './geo.js'
 import { SQLiteD1Database } from './sqlite.js'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -19,6 +26,9 @@ const database = new SQLiteD1Database(
 )
 const geoIpDatabase = openGeoIpDatabase(process.env.GEOIP_DATABASE_PATH)
 const trustProxyIpHeaders = String(process.env.TRUST_PROXY_IP_HEADERS || '').toLowerCase() === 'true'
+const trustCloudflareGeoHeaders = String(
+  process.env.TRUST_CLOUDFLARE_GEO_HEADERS || '',
+).toLowerCase() === 'true'
 
 const env = {
   TOKEN_KILLER_DB: database,
@@ -141,9 +151,11 @@ async function handle(request, response) {
     body,
     signal: controller.signal,
   })
-  if (['/geo', '/api/geo/assertion'].includes(url.pathname) && geoIpDatabase) {
-    const ip = requestClientIp(request, headers, trustProxyIpHeaders)
-    const context = lookupGeoContext(geoIpDatabase, ip)
+  if (isGeoAssertionPath(url.pathname)) {
+    const cloudflareContext = trustedCloudflareGeoContext(headers, trustCloudflareGeoHeaders)
+    const ip = geoIpDatabase ? requestClientIp(request, headers, trustProxyIpHeaders) : ''
+    const maxMindContext = lookupGeoContext(geoIpDatabase, ip)
+    const context = mergeGeoContexts(cloudflareContext, maxMindContext)
     if (context) Object.defineProperty(webRequest, 'cf', { configurable: true, value: context })
   }
   const webResponse = await worker.fetch(webRequest, env)
