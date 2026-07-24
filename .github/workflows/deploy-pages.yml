@@ -37,7 +37,7 @@ jobs:
           VITE_GEO_API_URL: ${{ vars.VITE_GEO_API_URL }}
           VITE_MAINLAND_GEO_API_URL: ${{ vars.VITE_MAINLAND_GEO_API_URL }}
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: dist
 
