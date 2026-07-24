@@ -1,5 +1,6 @@
 import { handleSubscriptionApi, subscriptionStatus } from './subscription.js'
 import { rankForTokens } from '../src/lib/ranks.js'
+import { API_NAMESPACES, API_ROUTES, isApiPath } from '../src/lib/apiRoutes.js'
 
 const JSON_HEADERS = {
   'content-type': 'application/json; charset=utf-8',
@@ -78,7 +79,7 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url)
 
-    if (url.pathname.startsWith('/api/') || url.pathname === '/geo') {
+    if (isApiPath(url.pathname)) {
       return handleApi(request, env, url)
     }
 
@@ -93,7 +94,7 @@ async function handleApi(request, env, url) {
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors })
 
   try {
-    if (request.method === 'GET' && url.pathname === '/api/health') {
+    if (request.method === 'GET' && url.pathname === API_ROUTES.health) {
       return json(
         {
           ok: Boolean(env.TOKEN_KILLER_DB && String(env.LEADERBOARD_HMAC_SECRET || '').length >= 32),
@@ -110,29 +111,29 @@ async function handleApi(request, env, url) {
       )
     }
 
-    if (request.method === 'POST' && ['/geo', '/api/geo/assertion'].includes(url.pathname)) {
+    if (request.method === 'POST' && url.pathname === API_ROUTES.geoAssertion) {
       return await createGeoAssertion(request, env, cors)
     }
 
     if (
-      url.pathname.startsWith('/api/oauth/') ||
-      url.pathname.startsWith('/api/subscription/')
+      url.pathname.startsWith(API_NAMESPACES.oauth) ||
+      url.pathname.startsWith(API_NAMESPACES.subscription)
     ) {
       return await handleSubscriptionApi(request, env, url, cors)
     }
 
     requireConfiguration(env)
 
-    if (['GET', 'POST'].includes(request.method) && url.pathname === '/api/leaderboard') {
+    if (['GET', 'POST'].includes(request.method) && url.pathname === API_ROUTES.leaderboard) {
       return await getLeaderboard(request, env, url, cors)
     }
-    if (request.method === 'POST' && url.pathname === '/api/leaderboard/profile') {
+    if (request.method === 'POST' && url.pathname === API_ROUTES.leaderboardProfile) {
       return await getLeaderboardProfile(request, env, cors)
     }
-    if (request.method === 'POST' && url.pathname === '/api/leaderboard/sessions') {
+    if (request.method === 'POST' && url.pathname === API_ROUTES.leaderboardSessions) {
       return await createSession(request, env, cors)
     }
-    if (request.method === 'POST' && url.pathname === '/api/leaderboard/runs') {
+    if (request.method === 'POST' && url.pathname === API_ROUTES.leaderboardRuns) {
       return await submitRun(request, env, cors)
     }
 

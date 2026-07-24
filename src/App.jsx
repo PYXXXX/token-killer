@@ -27,8 +27,11 @@ import {
   Star,
   Sun,
   Trash,
+  Translate,
   XLogo,
 } from '@phosphor-icons/react'
+import { I18nProvider, Localized } from './Localized.jsx'
+import { useLocale } from './locale-context.js'
 import { callProvider, guardedPromptEstimate, loadProviderModels } from './lib/api.js'
 import {
   checkSubscriptionService,
@@ -57,7 +60,7 @@ import {
   SUBSCRIPTION_PROVIDER_IDS,
 } from './lib/catalog.js'
 import { formatDuration, formatMoney, formatTokens, percent, todayKey } from './lib/format.js'
-import { checkGeoService, defaultGeoEndpoint } from './lib/geo.js'
+import { checkGeoService, defaultGeoEndpoint, deriveGeoEndpoint } from './lib/geo.js'
 import { createLeaderboardSession, getLeaderboard, getLeaderboardProfile, submitLeaderboardRun } from './lib/leaderboard.js'
 import { RANK_TIERS, rankForTokens } from './lib/ranks.js'
 import { EMPTY_MANUAL_REGION, countryOptions, sanitizeManualRegion } from './lib/regions.js'
@@ -82,6 +85,7 @@ import {
 import { exportShareCard } from './lib/share.js'
 import { clearLocalVault, deleteEncryptedSecret, getEncryptedSecret, saveEncryptedSecret } from './lib/localVault.js'
 import { providerBlockedMessage } from './lib/providerGuard.js'
+import { localeTag, resolveLocale, t, translateText } from './lib/i18n.js'
 
 const isSubscriptionProvider = (provider) => SUBSCRIPTION_PROVIDER_IDS.includes(provider)
 const accountProviderForSettings = (provider) => ({
@@ -95,7 +99,18 @@ const EMPTY_SUBSCRIPTION_PROVIDERS = { openai: false, claude: false, gemini: fal
 const CONFIGURED_GEO_URL = String(
   import.meta.env.VITE_GEO_API_URL || import.meta.env.VITE_MAINLAND_GEO_API_URL || '',
 ).trim()
-const DEFAULT_GEO_URL = CONFIGURED_GEO_URL || defaultGeoEndpoint()
+const DEFAULT_GEO_URL = (() => {
+  if (!CONFIGURED_GEO_URL) return defaultGeoEndpoint()
+  try {
+    return deriveGeoEndpoint(CONFIGURED_GEO_URL)
+  } catch {
+    return defaultGeoEndpoint()
+  }
+})()
+const DEFAULT_SYSTEM_PROMPTS = {
+  'zh-CN': '你是一台只执行当前任务的语言模型。不要调用工具，不要提前结束。',
+  en: 'You are a language model that only performs the current task. Do not use tools or stop early.',
+}
 
 function leaderboardSourceLabel(value) {
   const source = String(value || '').trim()
@@ -117,6 +132,7 @@ function participantLabelFromEntry(value, rank = 0) {
 }
 
 const DEFAULT_SETTINGS = {
+  locale: 'system',
   provider: 'openrouter',
   endpoint: PROVIDERS.openrouter.endpoint,
   model: PROVIDERS.openrouter.model,
@@ -129,7 +145,7 @@ const DEFAULT_SETTINGS = {
   stream: false,
   deepThinking: false,
   reasoningEffort: 'high',
-  systemPrompt: '你是一台只执行当前任务的语言模型。不要调用工具，不要提前结束。',
+  systemPrompt: DEFAULT_SYSTEM_PROMPTS[resolveLocale()],
   targetMode: 'tokens',
   targetTokens: 100000,
   targetAmount: 1,
@@ -263,7 +279,8 @@ function ProviderFields({
       : '点击刷新获取可用模型，也可以直接填写模型 ID；价格按 OpenRouter 目录匹配。'
 
   return (
-    <div className={`form-grid ${compact ? 'compact' : ''}`}>
+    <Localized>
+      <div className={`form-grid ${compact ? 'compact' : ''}`}>
       <Field label="请求格式" className="span-2">
         <select value={subscription ? 'subscription' : settings.apiFormat} onChange={(event) => switchFormat(event.target.value)}>
           {subscription ? <option value="subscription" disabled>当前使用消费版订阅账号</option> : null}
@@ -341,19 +358,27 @@ function ProviderFields({
           </Field>
         </>
       )}
-    </div>
+      </div>
+    </Localized>
   )
 }
 
 function BurnPanel({ settings, updateSettings, catalogState, session, onStart, onPause, onResume, onStop, price, accounts }) {
+  const locale = useLocale()
   const preset = PROMPT_PRESETS.find((item) => item.id === settings.promptId) || PROMPT_PRESETS[0]
   const target = settings.targetMode === 'tokens' ? Number(settings.targetTokens) : Number(settings.targetAmount)
   const consumed = settings.targetMode === 'tokens' ? session.tokens : session.cost
   const progress = percent(consumed, target)
-  const prompt = settings.promptId === 'custom' ? settings.customPrompt : preset.prompt
+  const presetPrompt = locale === 'en' ? preset.promptEn : preset.prompt
+  const prompt = settings.promptId === 'custom' ? settings.customPrompt : presetPrompt
+  const isSubscription = isSubscriptionProvider(settings.provider)
+  const priceSummary = t(
+    locale,
+    `${price.source}。费用按当前模型的 OpenRouter 参考价与实际 usage 估算${isSubscription ? '，订阅账号同样计入费用统计与排行榜' : ''}。${catalogState === 'loading' ? ' 正在刷新模型目录。' : ''}`,
+    `${translateText(locale, price.source)}. Cost is estimated from actual usage using the current model's OpenRouter reference price${isSubscription ? '; subscription accounts are included in cost statistics and leaderboards too' : ''}.${catalogState === 'loading' ? ' Refreshing the model catalog.' : ''}`,
+  )
   const promptReserve = guardedPromptEstimate(settings.systemPrompt, prompt)
   const active = ['running', 'pausing', 'paused', 'stopping'].includes(session.status)
-  const isSubscription = isSubscriptionProvider(settings.provider)
   const selectedAccount = accounts.find((account) => account.id === settings.selectedAccountId)
   const canStart = Boolean(
     settings.model &&
@@ -365,7 +390,8 @@ function BurnPanel({ settings, updateSettings, catalogState, session, onStart, o
   )
 
   return (
-    <div className="panel-page burn-page">
+    <Localized>
+      <div className="panel-page burn-page">
       <header className="page-header">
         <div>
           <span className="page-kicker">消耗控制台</span>
@@ -431,9 +457,7 @@ function BurnPanel({ settings, updateSettings, catalogState, session, onStart, o
             </div>
             <div className="price-source">
               <Info size={16} />
-              <span>
-                {`${price.source}。费用按当前模型的 OpenRouter 参考价与实际 usage 估算${isSubscription ? '，订阅账号同样计入费用统计与排行榜' : ''}。${catalogState === 'loading' ? ' 正在刷新模型目录。' : ''}`}
-              </span>
+              <span>{priceSummary}</span>
             </div>
           </div>
 
@@ -473,7 +497,7 @@ function BurnPanel({ settings, updateSettings, catalogState, session, onStart, o
             ) : (
               <div className="prompt-preview">
                 <span>将发送</span>
-                <p>{preset.prompt}</p>
+                <p>{presetPrompt}</p>
               </div>
             )}
           </div>
@@ -567,11 +591,13 @@ function BurnPanel({ settings, updateSettings, catalogState, session, onStart, o
           </div>
         </aside>
       </div>
-    </div>
+      </div>
+    </Localized>
   )
 }
 
 function StatsPanel({ runs, settings, leaderboardVersion, participantLabel }) {
+  const locale = useLocale()
   const [boardPeriod, setBoardPeriod] = useState('day')
   const [boardScope, setBoardScope] = useState('global')
   const [boardPage, setBoardPage] = useState(1)
@@ -602,7 +628,7 @@ function StatsPanel({ runs, settings, leaderboardVersion, participantLabel }) {
     const dateRuns = runs.filter((run) => run.date === key)
     return {
       key,
-      label: date.toLocaleDateString('zh-CN', { weekday: 'short' }),
+      label: date.toLocaleDateString(localeTag(locale), { weekday: 'short' }),
       tokens: dateRuns.reduce((sum, run) => sum + run.tokens, 0),
       runs: dateRuns,
     }
@@ -645,7 +671,7 @@ function StatsPanel({ runs, settings, leaderboardVersion, participantLabel }) {
   useEffect(() => {
     let active = true
     setGlobalBoard((current) => ({ ...current, status: 'loading', error: '' }))
-    getLeaderboard(settings.leaderboardApiUrl, boardPeriod, boardScope, boardPage, 'zh-CN', geoApiUrl, manualRegion)
+    getLeaderboard(settings.leaderboardApiUrl, boardPeriod, boardScope, boardPage, locale, geoApiUrl, manualRegion)
       .then((payload) => {
         if (active) {
           const pageCount = Math.max(1, Number(payload.pageCount) || 1)
@@ -684,12 +710,12 @@ function StatsPanel({ runs, settings, leaderboardVersion, participantLabel }) {
     return () => {
       active = false
     }
-  }, [settings.leaderboardApiUrl, geoApiUrl, manualRegion, boardPeriod, boardScope, boardPage, boardRefresh, leaderboardVersion])
+  }, [settings.leaderboardApiUrl, geoApiUrl, manualRegion, boardPeriod, boardScope, boardPage, boardRefresh, leaderboardVersion, locale])
 
   useEffect(() => {
     let active = true
     setRankProfile((current) => ({ ...current, status: 'loading', error: '' }))
-    getLeaderboardProfile(settings.leaderboardApiUrl, 'zh-CN', geoApiUrl, manualRegion)
+    getLeaderboardProfile(settings.leaderboardApiUrl, locale, geoApiUrl, manualRegion)
       .then((data) => {
         if (active) setRankProfile({ status: 'ready', data, error: '' })
       })
@@ -699,7 +725,7 @@ function StatsPanel({ runs, settings, leaderboardVersion, participantLabel }) {
     return () => {
       active = false
     }
-  }, [settings.leaderboardApiUrl, geoApiUrl, manualRegion, boardRefresh, leaderboardVersion])
+  }, [settings.leaderboardApiUrl, geoApiUrl, manualRegion, boardRefresh, leaderboardVersion, locale])
 
   const profileData = rankProfile.status === 'ready' ? rankProfile.data : null
   const currentTier = profileData?.tier || rankForTokens(totalTokens)
@@ -722,12 +748,18 @@ function StatsPanel({ runs, settings, leaderboardVersion, participantLabel }) {
   const rankDirectory = profileData?.context?.directory || globalBoard.context?.directory || []
   const rankGeoSource = profileData?.context?.source || globalBoard.context?.source || 'edge'
   const deploymentUrl = new URL('.', window.location.href).href.replace(/\/$/, '')
-  const rankingPhrase = globalRank ? `我位列全球第 ${globalRank} 名` : '我正在冲击全球排行榜'
+  const rankingPhrase = globalRank
+    ? t(locale, `我位列全球第 ${globalRank} 名`, `I rank #${globalRank} worldwide`)
+    : t(locale, '我正在冲击全球排行榜', 'I am climbing the global leaderboard')
   const currentEntryOnPage = globalBoard.entries.some((entry) => entry.isCurrent)
   const displayedBoardEntries = globalBoard.currentEntry && !currentEntryOnPage
     ? [{ ...globalBoard.currentEntry, pinned: true }, ...globalBoard.entries]
     : globalBoard.entries
-  const shareText = `我今天用 Token Killer 消耗了 ${formatTokens(todayTokens)} 个无意义 Token，累计 ${formatTokens(totalTokens)}。${rankingPhrase}，你也快来【${deploymentUrl}】浪费 Token 吧。`
+  const shareText = t(
+    locale,
+    `我今天用 Token Killer 消耗了 ${formatTokens(todayTokens)} 个无意义 Token，累计 ${formatTokens(totalTokens)}。${rankingPhrase}，你也快来【${deploymentUrl}】浪费 Token 吧。`,
+    `I burned ${formatTokens(todayTokens)} pointless tokens with Token Killer today, ${formatTokens(totalTokens)} in total. ${rankingPhrase}. Come waste yours at ${deploymentUrl}.`,
+  )
   const shareToX = () => {
     window.open(`https://x.com/intent/post?text=${encodeURIComponent(shareText)}`, '_blank', 'noopener,noreferrer')
   }
@@ -736,14 +768,15 @@ function StatsPanel({ runs, settings, leaderboardVersion, participantLabel }) {
   }
 
   return (
-    <div className="panel-page stats-page">
+    <Localized>
+      <div className="panel-page stats-page">
       <header className="page-header">
         <div>
           <span className="page-kicker">统计与排行</span>
           <h1>每一个 token 都有记录。</h1>
           <p>查看消耗趋势、运行记录与全网排行。</p>
         </div>
-        <button className="secondary-button" type="button" onClick={() => exportShareCard({ todayTokens, totalTokens, totalCost, participantLabel, globalRank, tier: currentTier })}>
+        <button className="secondary-button" type="button" onClick={() => exportShareCard({ todayTokens, totalTokens, totalCost, participantLabel, globalRank, tier: currentTier, locale })}>
           <DownloadSimple size={18} />
           导出分享卡
         </button>
@@ -983,7 +1016,7 @@ function StatsPanel({ runs, settings, leaderboardVersion, participantLabel }) {
                 <div className="run-row" key={run.id}>
                   <div>
                     <strong>{run.model}</strong>
-                    <span>{new Date(run.startedAt).toLocaleString('zh-CN')}{run.pricing?.matchedModel ? ` · ${run.pricing.matchedModel}` : ''}</span>
+                    <span>{new Date(run.startedAt).toLocaleString(localeTag(locale))}{run.pricing?.matchedModel ? ` · ${run.pricing.matchedModel}` : ''}</span>
                   </div>
                   <div>
                     <strong>{formatTokens(run.tokens)}</strong>
@@ -1116,11 +1149,13 @@ function StatsPanel({ runs, settings, leaderboardVersion, participantLabel }) {
           </div>
         </section>
       </div>
-    </div>
+      </div>
+    </Localized>
   )
 }
 
 function SubscriptionAccountManager({ settings, updateSettings, accountsState, reloadAccounts, compact = false }) {
+  const locale = useLocale()
   const serviceStatusId = useId()
   const [login, setLogin] = useState({ status: 'idle', provider: '', error: '', callbackValue: '' })
   const [serviceState, setServiceState] = useState({ status: 'idle', providers: EMPTY_SUBSCRIPTION_PROVIDERS, error: '' })
@@ -1211,7 +1246,11 @@ function SubscriptionAccountManager({ settings, updateSettings, accountsState, r
   }
 
   const removeAccount = async (account) => {
-    if (!window.confirm(`断开 ${account.displayName}？已保存的登录信息会被移除。`)) return
+    if (!window.confirm(t(
+      locale,
+      `断开 ${account.displayName}？已保存的登录信息会被移除。`,
+      `Disconnect ${account.displayName}? Its saved login data will be removed.`,
+    ))) return
     setDeletingId(account.id)
     try {
       await deleteSubscriptionAccount(settings.subscriptionApiUrl, account.id)
@@ -1233,15 +1272,17 @@ function SubscriptionAccountManager({ settings, updateSettings, accountsState, r
     ['gemini', 'Gemini'],
     ['grok', 'Grok'],
   ].filter(([provider]) => serviceState.providers[provider]).map(([, label]) => label)
+  const providerList = availableProviderLabels.join(locale === 'en' ? ', ' : '、')
   const serviceMessage = serviceState.status === 'checking'
     ? '正在检测 OAuth 授权服务'
     : serviceState.status === 'ready'
-      ? `授权服务正常，可连接 ${availableProviderLabels.join('、')}`
+      ? `授权服务正常，可连接 ${providerList}`
       : serviceState.status === 'error'
         ? `连接失败：${serviceState.error}`
         : '尚未检测，授权入口暂不可用'
   return (
-    <div className={`account-manager ${compact ? 'compact' : ''}`}>
+    <Localized>
+      <div className={`account-manager ${compact ? 'compact' : ''}`}>
       <div className="form-grid account-worker-field">
         <Field label="OAuth 授权服务" hint="同域部署可留空；分开部署时填写 Worker 地址。" className="span-2">
           <div className="oauth-service-field">
@@ -1258,11 +1299,19 @@ function SubscriptionAccountManager({ settings, updateSettings, accountsState, r
         </Field>
       </div>
 
+      <div className="oauth-relay-notice">
+        <Info size={18} />
+        <div>
+          <strong>请求会经过转发服务</strong>
+          <p>消费版账号的 OAuth 授权、凭据刷新和模型请求会经过你配置的 Worker/VPS 转发。转发服务会在请求期间处理访问凭据、Prompt 与模型响应，但不会将这些内容写入排行榜。</p>
+        </div>
+      </div>
+
       <div className="subscription-callout oauth-callout">
         <div>
           <span className="status-pill">SUBSCRIPTION LOGIN</span>
           <strong>连接你自己的消费版订阅</strong>
-          <p>选择平台完成登录，连接后可直接使用订阅模型。</p>
+          <p>选择平台完成登录，连接后可使用订阅模型。</p>
         </div>
         <div className="oauth-provider-actions" aria-describedby={serviceStatusId}>
           <button className="secondary-button" type="button" title={!serviceState.providers.openai ? unavailableTitle : ''} disabled={loginBusy || !serviceState.providers.openai} onClick={() => startLogin('openai')}>ChatGPT</button>
@@ -1348,13 +1397,15 @@ function SubscriptionAccountManager({ settings, updateSettings, accountsState, r
         <Info size={17} />
         <span>凭据不会出现在排行榜或分享内容中。清除站点数据会同时移除已连接账号。</span>
       </div>
-    </div>
+      </div>
+    </Localized>
   )
 }
 
 function SettingsPanel({
   settings,
   updateSettings,
+  onLocaleChange,
   models,
   availableModels,
   modelListState,
@@ -1370,6 +1421,7 @@ function SettingsPanel({
   onUnblockProvider,
   onClearProviderBlocklist,
 }) {
+  const locale = useLocale()
   const geoStatusId = useId()
   const [geoServiceState, setGeoServiceState] = useState({ status: 'idle', located: false, context: null, error: '' })
   const [manualRegionCatalog, setManualRegionCatalog] = useState({ status: 'idle', options: [], error: '' })
@@ -1379,7 +1431,7 @@ function SettingsPanel({
   const manualRegionCode = manualRegion.regionCode
   const manualRegionName = manualRegion.regionName
   const manualCityName = manualRegion.cityName
-  const manualCountryOptions = useMemo(() => countryOptions('zh-CN'), [])
+  const manualCountryOptions = useMemo(() => countryOptions(locale), [locale])
   const manualRegionIsProvinceOnly = manualCountryCode === 'CN' && ['HK', 'MO'].includes(manualRegionCode)
   const manualRegionRequired = manualRegionCatalog.options.length > 0
 
@@ -1399,7 +1451,7 @@ function SettingsPanel({
     }
 
     setManualRegionCatalog({ status: 'loading', options: [], error: '' })
-    loadRegionOptions(countryCode, 'zh-CN')
+    loadRegionOptions(countryCode, locale)
       .then((options) => {
         if (!active) return
         setManualRegionCatalog({ status: 'ready', options, error: '' })
@@ -1422,7 +1474,7 @@ function SettingsPanel({
     return () => {
       active = false
     }
-  }, [manualCountryCode, manualRegionCode, updateSettings])
+  }, [manualCountryCode, manualRegionCode, updateSettings, locale])
 
   useEffect(() => {
     let active = true
@@ -1490,7 +1542,7 @@ function SettingsPanel({
   const handleGeoServiceCheck = async () => {
     if (!settings.autoSelectRegion) return
     setGeoServiceState({ status: 'checking', located: false, context: null, error: '' })
-    const result = await checkGeoService(settings.geoApiUrl)
+    const result = await checkGeoService(settings.geoApiUrl, locale)
     setGeoServiceState({
       status: result.reachable ? 'ready' : 'error',
       located: result.located,
@@ -1514,7 +1566,8 @@ function SettingsPanel({
   })
 
   return (
-    <div className="panel-page settings-page">
+    <Localized>
+      <div className="panel-page settings-page">
       <header className="page-header">
         <div>
           <span className="page-kicker">配置</span>
@@ -1584,7 +1637,7 @@ function SettingsPanel({
                     {record.reasonCode || '未提供错误码'}
                     {record.status ? ` · HTTP ${record.status}` : ''}
                     {' · '}
-                    {new Date(record.blockedAt).toLocaleString('zh-CN')}
+                    {new Date(record.blockedAt).toLocaleString(localeTag(locale))}
                   </small>
                 </div>
                 <button className="secondary-button" type="button" onClick={() => onUnblockProvider(record.key)}>
@@ -1739,7 +1792,7 @@ function SettingsPanel({
             </label>
           </Field>
           {settings.autoSelectRegion ? (
-            <Field label="地区探测服务" hint="默认使用当前域名 /geo，也可以填写其他服务地址。" className="span-2">
+            <Field label="地区探测服务" hint="默认使用当前域名 /api/geo/assertion，也可以填写其他服务地址。" className="span-2">
               <div className="oauth-service-field">
                 <input type="url" value={settings.geoApiUrl} spellCheck="false" onChange={(event) => updateSettings({ geoApiUrl: event.target.value })} placeholder={DEFAULT_GEO_URL} />
                 <button className="secondary-button oauth-service-check" type="button" onClick={handleGeoServiceCheck} disabled={geoServiceState.status === 'checking'}>
@@ -1849,7 +1902,26 @@ function SettingsPanel({
         </div>
       </section>
 
-    </div>
+      <section className="settings-section section-block language-section">
+        <div className="settings-section-title">
+          <Translate size={22} />
+          <div>
+            <h2>界面与语言</h2>
+            <p>选择界面语言；跟随系统会使用浏览器偏好。</p>
+          </div>
+        </div>
+        <div className="form-grid">
+          <Field label="界面语言">
+            <select value={settings.locale || 'system'} onChange={(event) => onLocaleChange(event.target.value)}>
+              <option value="system">跟随系统</option>
+              <option value="zh-CN">简体中文</option>
+              <option value="en">English</option>
+            </select>
+          </Field>
+        </div>
+      </section>
+      </div>
+    </Localized>
   )
 }
 
@@ -1906,7 +1978,8 @@ function Onboarding({ settings, updateSettings, models, availableModels, modelLi
   }
 
   return (
-    <div className="modal-backdrop" role="presentation">
+    <Localized>
+      <div className="modal-backdrop" role="presentation">
       <div className="onboarding-modal" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
         <div className="onboarding-progress">
           {steps.map((_, index) => <i className={index <= step ? 'active' : ''} key={index} />)}
@@ -1925,13 +1998,15 @@ function Onboarding({ settings, updateSettings, models, availableModels, modelLi
           </div>
         </div>
       </div>
-    </div>
+      </div>
+    </Localized>
   )
 }
 
 export default function App() {
   const [activePanel, setActivePanel] = useState('burn')
   const [settings, setSettings] = useState(() => readSettings(DEFAULT_SETTINGS))
+  const locale = resolveLocale(settings.locale)
   const [runs, setRuns] = useState(() => recoverInterruptedRun())
   const [models, setModels] = useState([])
   const [catalogState, setCatalogState] = useState('loading')
@@ -1952,6 +2027,15 @@ export default function App() {
   const apiKeySaveTimerRef = useRef(null)
 
   const updateSettings = useCallback((patch) => setSettings((current) => ({ ...current, ...patch })), [])
+  const changeLocale = useCallback((preference) => {
+    setSettings((current) => {
+      const nextLocale = resolveLocale(preference)
+      const systemPrompt = Object.values(DEFAULT_SYSTEM_PROMPTS).includes(current.systemPrompt)
+        ? DEFAULT_SYSTEM_PROMPTS[nextLocale]
+        : current.systemPrompt
+      return { ...current, locale: preference, systemPrompt }
+    })
+  }, [])
   const reloadAccounts = useCallback(async () => {
     setAccountsState((current) => ({ ...current, status: 'loading', error: '' }))
     try {
@@ -2083,9 +2167,10 @@ export default function App() {
   useEffect(() => {
     writeSettings(settings)
     const root = document.documentElement
+    root.lang = locale
     if (settings.theme === 'system') root.removeAttribute('data-theme')
     else root.setAttribute('data-theme', settings.theme)
-  }, [settings])
+  }, [settings, locale])
 
   const saveRun = (data) => {
     const nextRuns = [data, ...runs.filter((run) => run.id !== data.id)].slice(0, 500)
@@ -2164,7 +2249,11 @@ export default function App() {
       return
     }
     const preset = PROMPT_PRESETS.find((item) => item.id === settings.promptId) || PROMPT_PRESETS[0]
-    const prompt = settings.promptId === 'custom' ? settings.customPrompt : preset.prompt
+    const prompt = settings.promptId === 'custom'
+      ? settings.customPrompt
+      : locale === 'en'
+        ? preset.promptEn
+        : preset.prompt
     const target = settings.targetMode === 'tokens' ? Number(settings.targetTokens) : Number(settings.targetAmount)
     const batchSize = Math.max(1, Number(settings.batchSize) || 1)
     const maxRounds = Math.max(0, Number(settings.maxRounds) || 0)
@@ -2395,13 +2484,17 @@ export default function App() {
   }
 
   const handleClearProviderBlocklist = () => {
-    if (!window.confirm('确定解除全部 Provider 屏蔽吗？')) return
+    if (!window.confirm(t(locale, '确定解除全部 Provider 屏蔽吗？', 'Remove every provider block?'))) return
     clearProviderBlocklist()
     setProviderBlocklist([])
   }
 
   const handleClear = async () => {
-    if (!window.confirm('确定清空设置、运行记录和已保存凭据吗？')) return
+    if (!window.confirm(t(
+      locale,
+      '确定清空设置、运行记录和已保存凭据吗？',
+      'Clear settings, run history, and saved credentials?',
+    ))) return
     window.clearTimeout(apiKeySaveTimerRef.current)
     apiKeySaveTimerRef.current = null
     const resetRequest = apiKeyStateRef.current.request + 1
@@ -2424,7 +2517,9 @@ export default function App() {
   }
 
   return (
-    <div className="app-shell">
+    <I18nProvider locale={locale}>
+      <Localized>
+        <div className="app-shell">
       <aside className="sidebar">
         <div className="brand">
           <span className="brand-mark"><Fire size={20} weight="fill" /></span>
@@ -2474,6 +2569,7 @@ export default function App() {
           <SettingsPanel
             settings={settings}
             updateSettings={updateSettings}
+            onLocaleChange={changeLocale}
             models={models}
             availableModels={availableModels}
             modelListState={modelListState}
@@ -2511,6 +2607,8 @@ export default function App() {
           onClose={() => setShowOnboarding(false)}
         />
       ) : null}
-    </div>
+        </div>
+      </Localized>
+    </I18nProvider>
   )
 }

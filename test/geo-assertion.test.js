@@ -5,7 +5,7 @@ import worker, { preferredGeo } from '../worker/index.js'
 const SECRET = 'a-dedicated-region-geo-secret-with-more-than-32-characters'
 const ORIGIN = 'https://frontend.example'
 
-function geoRequest(country, geo = {}, headers = {}, pathname = '/geo') {
+function geoRequest(country, geo = {}, headers = {}, pathname = '/api/geo/assertion') {
   const request = new Request(`https://geo.example${pathname}`, {
     method: 'POST',
     headers: {
@@ -102,13 +102,21 @@ test('a manual region overrides the network exit and is sanitized', async () => 
   })
 })
 
-test('the legacy geo assertion path remains available', async () => {
-  const response = await worker.fetch(geoRequest('CN', { regionCode: 'BJ', city: 'Beijing' }, {}, '/api/geo/assertion'), {
+test('the canonical geo assertion route is available under /api', async () => {
+  const response = await worker.fetch(geoRequest('CN', { regionCode: 'BJ', city: 'Beijing' }), {
     ALLOWED_ORIGINS: ORIGIN,
     GEO_ASSERTION_HMAC_SECRET: SECRET,
   })
   assert.equal(response.status, 200)
   assert.equal((await response.json()).located, true)
+})
+
+test('the former root /geo path is no longer handled as an API route', async () => {
+  const response = await worker.fetch(geoRequest('CN', {}, {}, '/geo'), {
+    ALLOWED_ORIGINS: ORIGIN,
+    GEO_ASSERTION_HMAC_SECRET: SECRET,
+  })
+  assert.notEqual(response.status, 200)
 })
 
 test('invalid assertions fall back to the leaderboard edge location', async () => {

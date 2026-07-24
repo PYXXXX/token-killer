@@ -1,8 +1,8 @@
 import fs from 'node:fs'
 import { isIP } from 'node:net'
 import { Reader } from '@maxmind/geoip2-node'
+import { API_ROUTES } from '../src/lib/apiRoutes.js'
 
-const GEO_ASSERTION_PATHS = new Set(['/geo', '/api/geo/assertion'])
 const INTERNAL_GEO_HEADERS = {
   country: 'x-token-killer-geo-country',
   region: 'x-token-killer-geo-region',
@@ -32,7 +32,7 @@ function comparableRegionName(value) {
 }
 
 export function isGeoAssertionPath(pathname) {
-  return GEO_ASSERTION_PATHS.has(String(pathname || ''))
+  return String(pathname || '') === API_ROUTES.geoAssertion
 }
 
 export function normalizeClientIp(value) {

@@ -11,14 +11,21 @@ import {
 test('derives a geo assertion endpoint from either a base URL or full endpoint', () => {
   assert.equal(
     deriveGeoEndpoint('https://geo.example.cn/'),
-    'https://geo.example.cn/geo',
+    'https://geo.example.cn/api/geo/assertion',
   )
-  assert.equal(deriveGeoEndpoint('https://geo.example.cn/geo'), 'https://geo.example.cn/geo')
+  assert.equal(
+    deriveGeoEndpoint('https://geo.example.cn/geo'),
+    'https://geo.example.cn/api/geo/assertion',
+  )
+  assert.equal(
+    deriveGeoEndpoint('https://geo.example.cn/api'),
+    'https://geo.example.cn/api/geo/assertion',
+  )
   assert.equal(
     deriveGeoEndpoint('https://geo.example.cn/prefix/api/geo/assertion?ignored=1'),
     'https://geo.example.cn/prefix/api/geo/assertion',
   )
-  assert.match(defaultGeoEndpoint(), /\/geo$/)
+  assert.match(defaultGeoEndpoint(), /\/api\/geo\/assertion$/)
 })
 
 test('uses and caches a signed region assertion', async (context) => {
@@ -31,9 +38,11 @@ test('uses and caches a signed region assertion', async (context) => {
   let requests = 0
   globalThis.fetch = async (url, options) => {
     requests += 1
-    assert.equal(url, 'https://geo.example.cn/geo')
+    assert.equal(url, 'https://geo.example.cn/api/geo/assertion')
     assert.equal(options.method, 'POST')
-    assert.ok(JSON.parse(options.body).nonce.length >= 16)
+    const body = JSON.parse(options.body)
+    assert.ok(body.nonce.length >= 16)
+    assert.equal(body.locale, 'en')
     return new Response(JSON.stringify({
       located: true,
       assertion: 'signed-region-location',
@@ -42,10 +51,10 @@ test('uses and caches a signed region assertion', async (context) => {
   }
 
   const [first, second] = await Promise.all([
-    resolveGeoAssertion('https://geo.example.cn'),
-    resolveGeoAssertion('https://geo.example.cn'),
+    resolveGeoAssertion('https://geo.example.cn', 'en'),
+    resolveGeoAssertion('https://geo.example.cn', 'en'),
   ])
-  const cached = await resolveGeoAssertion('https://geo.example.cn')
+  const cached = await resolveGeoAssertion('https://geo.example.cn', 'en')
   assert.equal(first, 'signed-region-location')
   assert.equal(second, first)
   assert.equal(cached, first)

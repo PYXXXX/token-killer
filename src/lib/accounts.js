@@ -1,4 +1,5 @@
 import { deleteLocalAccount, listLocalAccounts, saveLocalAccount } from './localVault.js'
+import { API_ROUTES, apiServiceUrl } from './apiRoutes.js'
 
 const REQUEST_TIMEOUT = 30_000
 const CLAUDE_CLIENT_ID = '9d1c250a-e61b-44d9-88ed-5944d1962f5e'
@@ -10,15 +11,11 @@ const GROK_CLIENT_ID = 'b1a00492-073a-47ea-816f-4c329264a828'
 const GROK_REDIRECT_URI = 'http://127.0.0.1:56121/callback'
 const GROK_SCOPE = 'openid profile email offline_access grok-cli:access api:access'
 
-function apiUrl(base, path) {
-  return `${String(base || '').trim().replace(/\/$/, '')}${path}`
-}
-
 async function request(base, path, options = {}) {
   const controller = new AbortController()
   const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT)
   try {
-    const response = await fetch(apiUrl(base, path), {
+    const response = await fetch(apiServiceUrl(base, path), {
       ...options,
       headers: {
         ...(options.body ? { 'Content-Type': 'application/json' } : {}),
@@ -89,7 +86,7 @@ export function deleteSubscriptionAccount(_base, accountId) {
 export async function checkSubscriptionService(base) {
   let payload
   try {
-    payload = await request(base, '/api/health')
+    payload = await request(base, API_ROUTES.health)
   } catch (error) {
     if (/无法识别的响应/.test(error.message)) {
       throw new Error('没有检测到兼容的 OAuth 授权服务')
@@ -125,11 +122,11 @@ export async function checkSubscriptionService(base) {
 }
 
 export function startChatGPTDeviceLogin(base) {
-  return request(base, '/api/oauth/openai/device/start', { method: 'POST', body: '{}' })
+  return request(base, API_ROUTES.oauth.openaiDeviceStart, { method: 'POST', body: '{}' })
 }
 
 export async function pollChatGPTDeviceLogin(base, session) {
-  const payload = await request(base, '/api/oauth/openai/device/poll', {
+  const payload = await request(base, API_ROUTES.oauth.openaiDevicePoll, {
     method: 'POST',
     body: JSON.stringify({ deviceAuthId: session.deviceAuthId, userCode: session.userCode }),
   })
@@ -157,7 +154,7 @@ export async function startClaudeLogin() {
 
 export async function finishClaudeLogin(base, session, callbackValue) {
   const parsed = extractCodeAndState(callbackValue, session.state)
-  const payload = await request(base, '/api/oauth/claude/exchange', {
+  const payload = await request(base, API_ROUTES.oauth.claudeExchange, {
     method: 'POST',
     body: JSON.stringify({ code: parsed.code, state: parsed.state, expectedState: session.state, codeVerifier: session.verifier }),
   })
@@ -165,7 +162,7 @@ export async function finishClaudeLogin(base, session, callbackValue) {
 }
 
 export async function startGeminiLogin(base, projectId = '') {
-  const config = await request(base, '/api/oauth/gemini/config')
+  const config = await request(base, API_ROUTES.oauth.geminiConfig)
   if (!config.clientId) throw new Error('Gemini OAuth 尚未配置')
   const { verifier, challenge } = await pkce()
   const state = randomValue(24)
@@ -188,7 +185,7 @@ export async function startGeminiLogin(base, projectId = '') {
 export async function finishGeminiLogin(base, session, callbackValue) {
   const parsed = extractCodeAndState(callbackValue, session.state)
   if (parsed.state && parsed.state !== session.state) throw new Error('Gemini OAuth state 不匹配，请重新发起登录')
-  const payload = await request(base, '/api/oauth/gemini/exchange', {
+  const payload = await request(base, API_ROUTES.oauth.geminiExchange, {
     method: 'POST',
     body: JSON.stringify({ code: parsed.code, codeVerifier: session.verifier, projectId: session.projectId }),
   })
@@ -218,7 +215,7 @@ export async function startGrokLogin() {
 export async function finishGrokLogin(base, session, callbackValue) {
   const parsed = extractCodeAndState(callbackValue, session.state)
   if (parsed.state !== session.state) throw new Error('Grok OAuth state 不匹配，请重新发起登录')
-  const payload = await request(base, '/api/oauth/grok/exchange', {
+  const payload = await request(base, API_ROUTES.oauth.grokExchange, {
     method: 'POST',
     body: JSON.stringify({ code: parsed.code, codeVerifier: session.verifier }),
   })
@@ -226,7 +223,14 @@ export async function finishGrokLogin(base, session, callbackValue) {
 }
 
 export function refreshSubscriptionCredential(base, provider, credential) {
-  return request(base, `/api/oauth/${provider}/refresh`, {
+  const route = {
+    openai: API_ROUTES.oauth.openaiRefresh,
+    claude: API_ROUTES.oauth.claudeRefresh,
+    gemini: API_ROUTES.oauth.geminiRefresh,
+    grok: API_ROUTES.oauth.grokRefresh,
+  }[provider]
+  if (!route) throw new Error('不支持的订阅账号类型')
+  return request(base, route, {
     method: 'POST',
     body: JSON.stringify({ refreshToken: credential.refreshToken }),
   })

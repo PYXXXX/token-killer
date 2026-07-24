@@ -201,11 +201,11 @@ Token Killer 可以先向专用地址申请短时签名地区凭证，再访问�
 
 这个接口完全可选，只用于排行榜地区识别。它不会收到 API Key、OAuth 凭据、安装编号、Prompt、模型响应或任何推理请求。
 
-### 1. 让 API 服务接管 `/geo`
+### 1. 让 API 服务接管 `/api/geo/assertion`
 
-仓库内的 Worker/Node API 已提供 `POST /geo`，旧的 `POST /api/geo/assertion` 地址继续兼容。当前端与 API 使用同一域名时，需要让反向代理把 `/geo` 转发给 API 容器；仓库提供的 Caddy 片段已经包含这条路由。
+仓库内的 Worker/Node 服务统一提供 `POST /api/geo/assertion`。Token Killer 的项目 API 全部位于 `/api` 下，原先位于根路径的 `/geo` 别名不再对外提供。当前端与 API 使用同一域名时，需要让反向代理把 `/api/geo/assertion` 转发给 API 容器；仓库提供的 Caddy 片段已经包含这条路由。
 
-“自动选择地区”默认开启。前端会自动填入当前域名的 `/geo`，在访问排行榜前先进行探测，并把结果明确标注为网络出口位置；用户也可以随时换成其他 HTTPS 域名。关闭自动选择后，可以手动指定国家、一级行政区和城市。`VITE_GEO_API_URL` 用于修改默认服务地址，旧的 `VITE_MAINLAND_GEO_API_URL` 构建变量仍然兼容。
+“自动选择地区”默认开启。前端会自动填入当前域名的 `/api/geo/assertion`，在访问排行榜前先进行探测，并把结果明确标注为网络出口位置；用户也可以随时换成其他 HTTPS 服务 Origin，也可以显式填写到 `/api`。浏览器里以前保存的 `/geo` 地址会自动迁移。关闭自动选择后，可以手动指定国家、一级行政区和城市。`VITE_GEO_API_URL` 用于修改默认服务地址，旧的 `VITE_MAINLAND_GEO_API_URL` 构建变量仍然兼容。
 
 ### 2. 开启 Cloudflare 访客位置 Header
 
@@ -225,7 +225,7 @@ Node 会优先采用 Cloudflare 的非空字段，只用 MaxMind 补充兼容的
 
 ### 3. 让新加坡 VPS 具备本地 IP 地区识别
 
-普通 Node 服务没有 Cloudflare 的 `request.cf`。为了让新加坡 VPS 上的 `/geo` 能自行工作，Token Killer 支持通过 MaxMind 官方 Node 读取器在本机查询 GeoLite2 City 或 Country `.mmdb` 数据库。整个查询留在 VPS 内，不会把访客 IP 再发送给其他地区查询 API。City 数据库可以提供一级行政区和城市排行榜；Country 数据库足以支持国家排行榜。
+普通 Node 服务没有 Cloudflare 的 `request.cf`。为了让新加坡 VPS 上的 `/api/geo/assertion` 能自行工作，Token Killer 支持通过 MaxMind 官方 Node 读取器在本机查询 GeoLite2 City 或 Country `.mmdb` 数据库。整个查询留在 VPS 内，不会把访客 IP 再发送给其他地区查询 API。City 数据库可以提供一级行政区和城市排行榜；Country 数据库足以支持国家排行榜。
 
 从 [MaxMind](https://dev.maxmind.com/geoip/geolite2-free-geolocation-data) 下载最新城市数据库，并放到：
 
@@ -247,7 +247,7 @@ IP 地理定位本身只能近似判断，有时也不会返回城市。只识�
 
 ### 4. 理解代理环境下的结果
 
-API 可以部署在新加坡，但 HTTP 代理替换来源 IP 后，任何服务端代码都无法恢复用户原来的住宅 IP。如果当前站点域名本身会走代理，同域 `/geo` 看到的也仍然是代理出口。
+API 可以部署在新加坡，但 HTTP 代理替换来源 IP 后，任何服务端代码都无法恢复用户原来的住宅 IP。如果当前站点域名本身会走代理，同域 `/api/geo/assertion` 看到的也仍然是代理出口。
 
 面向规则代理用户时，独立的直连友好域名可能得到不同的网络出口，但网页无法强制某个请求绕过用户代理。用户可以在“地区探测服务”中填写其他域名。如果可信上游已经直接提供规范化地区而不是原始 IP，也可以设置 `TRUST_GEO_HEADERS=true` 并注入 `X-Geo-Country`、`X-Geo-Region-Code`、`X-Geo-Region`、`X-Geo-City`；上游必须先删除访客自行携带的同名 Header。
 
@@ -265,7 +265,7 @@ npx wrangler secret put GEO_ASSERTION_HMAC_SECRET
 
 ### 6. 让前端使用探测服务
 
-自动选择地区默认开启。用户可以保留当前域名 `/geo`、填写其他服务地址，或者关闭自动选择并手动指定赛区。若希望自己的 GitHub Pages Fork 使用指定的默认地址，进入仓库 **Settings → Secrets and variables → Actions → Variables**，添加：
+自动选择地区默认开启。用户可以保留当前域名 `/api/geo/assertion`、填写其他服务地址，或者关闭自动选择并手动指定赛区。若希望自己的 GitHub Pages Fork 使用指定的默认地址，进入仓库 **Settings → Secrets and variables → Actions → Variables**，添加：
 
 ```text
 VITE_GEO_API_URL=https://geo.example.com

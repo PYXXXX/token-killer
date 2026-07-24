@@ -82,7 +82,8 @@ export function readSettings(fallback) {
           : mainlandGeoApiUrl !== undefined
             ? Boolean(mainlandGeoApiUrl)
             : fallback.autoSelectRegion !== false
-    const geoApiUrl = saved.geoApiUrl || mainlandGeoApiUrl || fallback.geoApiUrl
+    const geoApiUrl = String(saved.geoApiUrl || mainlandGeoApiUrl || fallback.geoApiUrl || '')
+      .replace(/\/geo\/?$/i, '/api/geo/assertion')
     const manualRegion = sanitizeManualRegion(saved.manualRegion || fallback.manualRegion)
     return { ...fallback, ...saved, autoSelectRegion, geoApiUrl, manualRegion, apiKey: '' }
   } catch {

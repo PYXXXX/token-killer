@@ -165,8 +165,8 @@ test('direct requests cannot activate forged Cloudflare or internal geo headers'
   assert.equal(trustedCloudflareGeoContext(new Headers({ 'cf-ipcountry': 'US' }), true), null)
 })
 
-test('/geo and /api/geo/assertion share the same Node geo path', () => {
-  assert.equal(isGeoAssertionPath('/geo'), true)
+test('only the namespaced geo assertion route activates Node geolocation', () => {
+  assert.equal(isGeoAssertionPath('/geo'), false)
   assert.equal(isGeoAssertionPath('/api/geo/assertion'), true)
   assert.equal(isGeoAssertionPath('/api/leaderboard'), false)
 })

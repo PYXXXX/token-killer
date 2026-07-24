@@ -2109,6 +2109,34 @@ main {
   color: var(--warning);
 }
 
+.oauth-relay-notice {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  padding: 13px 15px;
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--line));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent-soft) 20%, var(--surface));
+}
+
+.oauth-relay-notice > svg {
+  margin-top: 1px;
+  color: var(--accent);
+}
+
+.oauth-relay-notice strong {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 11px;
+}
+
+.oauth-relay-notice p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 10px;
+  line-height: 1.65;
+}
+
 .subscription-callout {
   display: flex;
   justify-content: space-between;

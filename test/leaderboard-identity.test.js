@@ -108,6 +108,14 @@ test('fresh settings preserve a build-configured geo service default', () => {
   assert.equal(settings.geoApiUrl, 'https://geo.example.com')
 })
 
+test('saved root geo endpoints migrate into the /api namespace', () => {
+  localStorage.setItem('token-killer:settings:v1', JSON.stringify({
+    geoApiUrl: 'https://geo.example.com/geo',
+  }))
+  const settings = readSettings({ autoSelectRegion: true, geoApiUrl: '/api/geo/assertion', manualRegion: {} })
+  assert.equal(settings.geoApiUrl, 'https://geo.example.com/api/geo/assertion')
+})
+
 test('leaderboard issues stable unique numbers and ignores a submitted nickname', async () => {
   const database = new IdentityDatabase()
   const first = await requestProfile(database, 'installation-0000000000001', '自定义昵称')

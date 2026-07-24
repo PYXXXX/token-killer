@@ -12,6 +12,9 @@ test('locale resolution honors explicit choices and exposes stable locale tags',
 
 test('interface copy and generated labels translate without changing unknown user text', () => {
   assert.equal(translateText('en', '消耗目标'), 'Burn target')
+  assert.equal(translateText('en', '请求会经过转发服务'), 'Requests use the relay')
+  assert.equal(translateText('en', '界面与语言'), 'Interface and language')
+  assert.equal(translateText('en', '请求超时'), 'Request timeout')
   assert.equal(translateText('en', '第 7 轮请求中，输出上限 4.1K'), 'Round 7 in progress · output limit 4.1K')
   assert.equal(translateText('en', '第 3 / 10 页'), 'Page 3 / 10')
   assert.equal(translateText('en', '燃烧者 #145473'), 'Burner #145473')

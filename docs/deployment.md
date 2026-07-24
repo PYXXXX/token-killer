@@ -201,11 +201,11 @@ A valid assertion takes priority over the leaderboard edge lookup. If detection 
 
 This endpoint is optional and is used only for leaderboard location. It never receives an API key, OAuth credential, installation ID, prompt, model response, or inference request.
 
-### 1. Expose `/geo` on the API service
+### 1. Expose `/api/geo/assertion` on the API service
 
-The included Worker/Node API exposes `POST /geo`; the older `POST /api/geo/assertion` path remains compatible. When the frontend and API share an origin, update the reverse proxy so `/geo` reaches the API container. The provided Caddy snippet already includes this route.
+The included Worker/Node service exposes the canonical `POST /api/geo/assertion` endpoint. All Token Killer application APIs live under `/api`; the former root-level `/geo` alias is no longer served. When the frontend and API share an origin, update the reverse proxy so `/api/geo/assertion` reaches the API container. The provided Caddy snippet already includes this route.
 
-**Select region automatically** is enabled by default. The frontend fills in `/geo` on the current origin, checks it before leaderboard calls, and labels the result as a network exit location. A different HTTPS origin can be entered at any time. Turning automatic selection off reveals manual country, first-level region, and city controls. `VITE_GEO_API_URL` changes the default service URL; the legacy `VITE_MAINLAND_GEO_API_URL` build variable is still accepted.
+**Select region automatically** is enabled by default. The frontend fills in `/api/geo/assertion` on the current origin, checks it before leaderboard calls, and labels the result as a network exit location. A different HTTPS service origin can be entered at any time; an explicit `/api` base is also accepted. Existing browser settings that end in `/geo` are migrated automatically. Turning automatic selection off reveals manual country, first-level region, and city controls. `VITE_GEO_API_URL` changes the default service URL; the legacy `VITE_MAINLAND_GEO_API_URL` build variable is still accepted.
 
 ### 2. Enable Cloudflare visitor location headers
 
@@ -225,7 +225,7 @@ Node prefers non-empty Cloudflare fields and uses MaxMind only to fill compatibl
 
 ### 3. Give a Singapore VPS a local GeoIP database
 
-A Node service does not receive Cloudflare's `request.cf`. To make `/geo` work directly on a Singapore VPS, Token Killer can read a GeoLite2 City or Country `.mmdb` file locally through MaxMind's official Node reader. The lookup stays on the VPS and does not send the visitor's IP to another geolocation API. City enables first-level region and city rankings; Country is enough for country-level rankings.
+A Node service does not receive Cloudflare's `request.cf`. To make `/api/geo/assertion` work directly on a Singapore VPS, Token Killer can read a GeoLite2 City or Country `.mmdb` file locally through MaxMind's official Node reader. The lookup stays on the VPS and does not send the visitor's IP to another geolocation API. City enables first-level region and city rankings; Country is enough for country-level rankings.
 
 Download a current city database from [MaxMind](https://dev.maxmind.com/geoip/geolite2-free-geolocation-data), then place it at:
 
@@ -247,7 +247,7 @@ GeoIP is approximate and sometimes lacks a city. A country-only match can still 
 
 ### 4. Understand proxy results
 
-Running the API in Singapore is supported, but no server can recover the residential IP after an HTTP proxy has replaced it. If the current site origin itself goes through the proxy, same-origin `/geo` sees the proxy exit too.
+Running the API in Singapore is supported, but no server can recover the residential IP after an HTTP proxy has replaced it. If the current site origin itself goes through the proxy, same-origin `/api/geo/assertion` sees the proxy exit too.
 
 For rules-based proxy users, a separate direct-friendly hostname may produce a different network exit, but the browser cannot force a request to bypass its proxy. Users can enter another hostname in **Geo detection service**. If a trusted upstream already supplies normalized location fields instead of an IP database, set `TRUST_GEO_HEADERS=true` and inject `X-Geo-Country`, `X-Geo-Region-Code`, `X-Geo-Region`, and `X-Geo-City`; the proxy must strip any visitor-supplied copies first.
 
@@ -265,7 +265,7 @@ Add the frontend origin to the probe's `ALLOWED_ORIGINS`. GitHub Pages is HTTPS,
 
 ### 6. Point the frontend at the detection service
 
-Automatic selection is enabled by default. Visitors can keep the current-origin `/geo` default, enter another service URL, or turn automatic selection off and choose a region manually. To provide a different default URL in a GitHub Pages fork, open **Settings → Secrets and variables → Actions → Variables** and create:
+Automatic selection is enabled by default. Visitors can keep the current-origin `/api/geo/assertion` default, enter another service URL, or turn automatic selection off and choose a region manually. To provide a different default URL in a GitHub Pages fork, open **Settings → Secrets and variables → Actions → Variables** and create:
 
 ```text
 VITE_GEO_API_URL=https://geo.example.com

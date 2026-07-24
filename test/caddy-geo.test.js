@@ -4,9 +4,10 @@ import test from 'node:test'
 
 const caddyfile = fs.readFileSync(new URL('../deploy/vps/Caddyfile.snippet', import.meta.url), 'utf8')
 
-test('Caddy applies the trusted Cloudflare matcher to both geo assertion paths', () => {
-  assert.match(caddyfile, /@geoCloudflare\s*\{[\s\S]*?path \/geo \/api\/geo\/assertion/)
-  assert.match(caddyfile, /@geoDirect path \/geo \/api\/geo\/assertion/)
+test('Caddy applies trusted Cloudflare handling only to the namespaced geo route', () => {
+  assert.match(caddyfile, /@geoCloudflare\s*\{[\s\S]*?path \/api\/geo\/assertion/)
+  assert.match(caddyfile, /@geoDirect path \/api\/geo\/assertion/)
+  assert.doesNotMatch(caddyfile, /path \/geo(?:\s|$)/)
   assert.doesNotMatch(caddyfile, /CF-Ray/i)
 })
 

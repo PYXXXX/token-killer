@@ -1,6 +1,7 @@
 import { getInstallationId } from './storage.js'
 import { resolveGeoAssertion } from './geo.js'
 import { sanitizeManualRegion } from './regions.js'
+import { API_ROUTES, apiServiceUrl } from './apiRoutes.js'
 
 const REQUEST_TIMEOUT = 5000
 const PARTICIPANT_LABEL_PATTERN = /^燃烧者 #[1-9]\d{5}$/
@@ -11,8 +12,8 @@ export function normalizeLeaderboardParticipantLabel(value) {
 }
 
 function apiUrl(base, path) {
-  const value = String(base || '').trim()
-  if (!value) return path
+  const value = apiServiceUrl(base, path)
+  if (value.startsWith('/')) return value
   let parsed
   try {
     parsed = new URL(value, window.location.origin)
@@ -20,7 +21,7 @@ function apiUrl(base, path) {
     throw new Error('排行榜服务地址无效')
   }
   if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('排行榜服务地址仅支持 HTTP 或 HTTPS')
-  return `${parsed.href.replace(/\/$/, '')}${path}`
+  return parsed.href
 }
 
 async function request(base, path, options = {}) {
@@ -47,8 +48,8 @@ async function request(base, path, options = {}) {
 
 export async function getLeaderboard(base, period = 'day', scope = 'global', page = 1, locale = 'zh-CN', geoApiUrl = '', manualRegion = null) {
   const safeScope = ['country', 'province', 'city'].includes(scope) ? scope : 'global'
-  const geoAssertion = await resolveGeoAssertion(geoApiUrl)
-  return request(base, '/api/leaderboard', {
+  const geoAssertion = await resolveGeoAssertion(geoApiUrl, locale)
+  return request(base, API_ROUTES.leaderboard, {
     method: 'POST',
     body: JSON.stringify({
       installationId: getInstallationId(),
@@ -63,8 +64,8 @@ export async function getLeaderboard(base, period = 'day', scope = 'global', pag
 }
 
 export async function getLeaderboardProfile(base, locale = 'zh-CN', geoApiUrl = '', manualRegion = null) {
-  const geoAssertion = await resolveGeoAssertion(geoApiUrl)
-  return request(base, '/api/leaderboard/profile', {
+  const geoAssertion = await resolveGeoAssertion(geoApiUrl, locale)
+  return request(base, API_ROUTES.leaderboardProfile, {
     method: 'POST',
     body: JSON.stringify({
       installationId: getInstallationId(),
@@ -78,9 +79,9 @@ export async function getLeaderboardProfile(base, locale = 'zh-CN', geoApiUrl = 
 export async function createLeaderboardSession(base, settings) {
   if (!settings.publishToLeaderboard) return null
   const geoAssertion = settings.autoSelectRegion
-    ? await resolveGeoAssertion(settings.geoApiUrl)
+    ? await resolveGeoAssertion(settings.geoApiUrl, settings.locale)
     : ''
-  return request(base, '/api/leaderboard/sessions', {
+  return request(base, API_ROUTES.leaderboardSessions, {
     method: 'POST',
     body: JSON.stringify({
       installationId: getInstallationId(),
@@ -98,7 +99,7 @@ export async function createLeaderboardSession(base, settings) {
 
 export async function submitLeaderboardRun(base, leaderboardSession, run) {
   if (!leaderboardSession || !run.verified || !['completed', 'guarded', 'exceeded'].includes(run.status)) return null
-  return request(base, '/api/leaderboard/runs', {
+  return request(base, API_ROUTES.leaderboardRuns, {
     method: 'POST',
     body: JSON.stringify({
       sessionId: leaderboardSession.sessionId,

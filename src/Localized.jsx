@@ -2,7 +2,7 @@ import { Children, cloneElement, isValidElement } from 'react'
 import { translateText } from './lib/i18n.js'
 import { LocaleContext, useLocale } from './locale-context.js'
 
-const TEXT_PROPS = new Set(['label', 'hint', 'title', 'placeholder', 'aria-label', 'alt'])
+const TEXT_PROPS = new Set(['label', 'hint', 'detail', 'title', 'placeholder', 'aria-label', 'alt'])
 
 function translateOptions(locale, options) {
   if (!Array.isArray(options)) return options

@@ -1,4 +1,5 @@
 import { appendRequestMarker, classifyProviderError } from '../src/lib/providerGuard.js'
+import { API_ROUTES } from '../src/lib/apiRoutes.js'
 
 const OPENAI_AUTH_BASE_URL = 'https://auth.openai.com'
 const OPENAI_CODEX_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann'
@@ -36,47 +37,47 @@ export function subscriptionStatus(env) {
 }
 
 export async function handleSubscriptionApi(request, env, url, cors) {
-  if (request.method === 'POST' && url.pathname === '/api/oauth/openai/device/start') {
+  if (request.method === 'POST' && url.pathname === API_ROUTES.oauth.openaiDeviceStart) {
     return startOpenAIDeviceLogin(cors)
   }
-  if (request.method === 'POST' && url.pathname === '/api/oauth/openai/device/poll') {
+  if (request.method === 'POST' && url.pathname === API_ROUTES.oauth.openaiDevicePoll) {
     return pollOpenAIDeviceLogin(request, cors)
   }
-  if (request.method === 'POST' && url.pathname === '/api/oauth/openai/refresh') {
+  if (request.method === 'POST' && url.pathname === API_ROUTES.oauth.openaiRefresh) {
     return refreshOpenAI(request, cors)
   }
-  if (request.method === 'POST' && url.pathname === '/api/oauth/claude/exchange') {
+  if (request.method === 'POST' && url.pathname === API_ROUTES.oauth.claudeExchange) {
     return exchangeClaude(request, cors)
   }
-  if (request.method === 'POST' && url.pathname === '/api/oauth/claude/refresh') {
+  if (request.method === 'POST' && url.pathname === API_ROUTES.oauth.claudeRefresh) {
     return refreshClaude(request, cors)
   }
-  if (request.method === 'GET' && url.pathname === '/api/oauth/gemini/config') {
+  if (request.method === 'GET' && url.pathname === API_ROUTES.oauth.geminiConfig) {
     const { clientId } = geminiOAuthConfig(env, false)
     return json({ clientId, redirectUri: GEMINI_REDIRECT_URI }, 200, cors)
   }
-  if (request.method === 'POST' && url.pathname === '/api/oauth/gemini/exchange') {
+  if (request.method === 'POST' && url.pathname === API_ROUTES.oauth.geminiExchange) {
     return exchangeGemini(request, env, cors)
   }
-  if (request.method === 'POST' && url.pathname === '/api/oauth/gemini/refresh') {
+  if (request.method === 'POST' && url.pathname === API_ROUTES.oauth.geminiRefresh) {
     return refreshGemini(request, env, cors)
   }
-  if (request.method === 'POST' && url.pathname === '/api/oauth/grok/exchange') {
+  if (request.method === 'POST' && url.pathname === API_ROUTES.oauth.grokExchange) {
     return exchangeGrok(request, cors)
   }
-  if (request.method === 'POST' && url.pathname === '/api/oauth/grok/refresh') {
+  if (request.method === 'POST' && url.pathname === API_ROUTES.oauth.grokRefresh) {
     return refreshGrok(request, cors)
   }
-  if (request.method === 'POST' && url.pathname === '/api/subscription/openai/responses') {
+  if (request.method === 'POST' && url.pathname === API_ROUTES.subscription.openaiResponses) {
     return proxyOpenAIResponses(request, cors)
   }
-  if (request.method === 'POST' && url.pathname === '/api/subscription/claude/messages') {
+  if (request.method === 'POST' && url.pathname === API_ROUTES.subscription.claudeMessages) {
     return proxyClaudeMessages(request, cors)
   }
-  if (request.method === 'POST' && url.pathname === '/api/subscription/gemini/generate') {
+  if (request.method === 'POST' && url.pathname === API_ROUTES.subscription.geminiGenerate) {
     return proxyGeminiGenerate(request, cors)
   }
-  if (request.method === 'POST' && url.pathname === '/api/subscription/grok/responses') {
+  if (request.method === 'POST' && url.pathname === API_ROUTES.subscription.grokResponses) {
     return proxyGrokResponses(request, cors)
   }
 

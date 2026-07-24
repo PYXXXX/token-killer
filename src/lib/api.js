@@ -8,6 +8,7 @@ import {
   providerBlockedMessage,
 } from './providerGuard.js'
 import { blockProvider, isProviderBlocked } from './storage.js'
+import { API_ROUTES, apiServiceUrl } from './apiRoutes.js'
 
 function parseExtraHeaders(raw) {
   if (!raw?.trim()) return {}
@@ -469,17 +470,16 @@ export function buildSubscriptionPayload(settings, credential, prompt, maxOutput
 async function callSubscription(settings, prompt, maxOutput, signal, onChunk) {
   if (!settings.model?.trim()) throw new Error('请先填写模型 ID')
   const account = await resolveSubscriptionAccount(settings)
-  const base = String(settings.subscriptionApiUrl || '').trim().replace(/\/$/, '')
   const routes = {
-    openai: '/api/subscription/openai/responses',
-    claude: '/api/subscription/claude/messages',
-    gemini: '/api/subscription/gemini/generate',
-    grok: '/api/subscription/grok/responses',
+    openai: API_ROUTES.subscription.openaiResponses,
+    claude: API_ROUTES.subscription.claudeMessages,
+    gemini: API_ROUTES.subscription.geminiGenerate,
+    grok: API_ROUTES.subscription.grokResponses,
   }
   let response
   try {
     assertProviderAvailable(settings)
-    response = await fetchInference(`${base}${routes[account.provider]}`, {
+    response = await fetchInference(apiServiceUrl(settings.subscriptionApiUrl, routes[account.provider]), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(buildSubscriptionPayload(settings, account.credential, prompt, maxOutput)),

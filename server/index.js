@@ -6,6 +6,7 @@ import process from 'node:process'
 import { Readable } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import worker from '../worker/index.js'
+import { API_NAMESPACES, API_ROUTES } from '../src/lib/apiRoutes.js'
 import {
   isGeoAssertionPath,
   lookupGeoContext,
@@ -66,13 +67,13 @@ function clientIp(headers) {
 }
 
 function rateLimit(pathname, headers) {
-  const group = pathname === '/geo'
+  const group = pathname === API_ROUTES.geoAssertion
     ? ['geo', 120]
-    : pathname.startsWith('/api/subscription/')
+    : pathname.startsWith(API_NAMESPACES.subscription)
     ? ['subscription', 30]
-    : pathname.startsWith('/api/oauth/')
+    : pathname.startsWith(API_NAMESPACES.oauth)
       ? ['oauth', 120]
-      : pathname.startsWith('/api/leaderboard')
+      : pathname.startsWith(API_NAMESPACES.leaderboard)
         ? ['leaderboard', 180]
         : null
   if (!group) return null

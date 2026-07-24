@@ -1,3 +1,5 @@
+import { API_PREFIX, API_ROUTES } from './apiRoutes.js'
+
 const GEO_REQUEST_TIMEOUT = 2500
 const POSITIVE_CACHE_SKEW_SECONDS = 15
 const NEGATIVE_CACHE_MS = 60_000
@@ -6,7 +8,7 @@ const assertionCache = new Map()
 const assertionRequests = new Map()
 
 export function defaultGeoEndpoint() {
-  return new URL('/geo', globalThis.location?.origin || 'http://localhost').toString()
+  return new URL(API_ROUTES.geoAssertion, globalThis.location?.origin || 'http://localhost').toString()
 }
 
 export function deriveGeoEndpoint(base) {
@@ -21,20 +23,25 @@ export function deriveGeoEndpoint(base) {
   if (!['http:', 'https:'].includes(url.protocol)) throw new Error('地区探测仅支持 HTTP 或 HTTPS')
   url.search = ''
   url.hash = ''
-  if (!/(?:\/geo|\/api\/geo\/assertion)\/?$/i.test(url.pathname)) {
-    url.pathname = `${url.pathname.replace(/\/$/, '')}/geo`.replace(/\/+/g, '/')
-  }
+  const pathname = url.pathname.replace(/\/+$/, '')
+  url.pathname = /\/geo$/i.test(pathname)
+    ? `${pathname.slice(0, -'/geo'.length)}${API_ROUTES.geoAssertion}`.replace(/\/+/g, '/')
+    : /\/api\/geo\/assertion$/i.test(pathname)
+      ? pathname
+      : pathname.endsWith(API_PREFIX)
+        ? `${pathname}/geo/assertion`.replace(/\/+/g, '/')
+        : `${pathname}${API_ROUTES.geoAssertion}`.replace(/\/+/g, '/')
   return url.toString()
 }
 
-async function requestGeoAssertion(endpoint) {
+async function requestGeoAssertion(endpoint, locale = 'zh-CN') {
   const controller = new AbortController()
   const timeout = globalThis.setTimeout(() => controller.abort(), GEO_REQUEST_TIMEOUT)
   try {
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ nonce: crypto.randomUUID() }),
+      body: JSON.stringify({ nonce: crypto.randomUUID(), locale: locale === 'en' ? 'en' : 'zh-CN' }),
       signal: controller.signal,
     })
     let payload
@@ -80,7 +87,7 @@ async function requestGeoAssertion(endpoint) {
   }
 }
 
-export async function resolveGeoAssertion(base) {
+export async function resolveGeoAssertion(base, locale = 'zh-CN') {
   let endpoint
   try {
     endpoint = deriveGeoEndpoint(base)
@@ -93,7 +100,7 @@ export async function resolveGeoAssertion(base) {
   if (cached && cached.validUntil > now) return cached.assertion
   if (assertionRequests.has(endpoint)) return assertionRequests.get(endpoint)
 
-  const request = requestGeoAssertion(endpoint)
+  const request = requestGeoAssertion(endpoint, locale)
     .then((result) => {
       const validUntil = result.assertion
         ? Math.max(now, (result.expiresAt - POSITIVE_CACHE_SKEW_SECONDS) * 1000)
@@ -106,7 +113,7 @@ export async function resolveGeoAssertion(base) {
   return request
 }
 
-export async function checkGeoService(base) {
+export async function checkGeoService(base, locale = 'zh-CN') {
   let endpoint
   try {
     endpoint = deriveGeoEndpoint(base)
@@ -118,7 +125,7 @@ export async function checkGeoService(base) {
   }
   assertionCache.delete(endpoint)
   assertionRequests.delete(endpoint)
-  const result = await requestGeoAssertion(endpoint)
+  const result = await requestGeoAssertion(endpoint, locale)
   const now = Date.now()
   const validUntil = result.assertion
     ? Math.max(now, (result.expiresAt - POSITIVE_CACHE_SKEW_SECONDS) * 1000)
