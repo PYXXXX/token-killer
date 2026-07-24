@@ -224,7 +224,7 @@ GEOIP_DATABASE_PATH=/geoip/GeoLite2-City.mmdb
 TRUST_PROXY_IP_HEADERS=true
 ```
 
-只有 Node 端口没有暴露到公网、所有请求都必须经过可信 Caddy/CDN 时，才能开启 `TRUST_PROXY_IP_HEADERS`。仓库提供的 Caddy 路由会用连接来源覆盖 `X-Real-IP`；如果 Node 端口可以被公网直接访问，应保持为 `false`。
+只有 Node 端口没有暴露到公网、所有请求都必须经过可信 Caddy/CDN 时，才能开启 `TRUST_PROXY_IP_HEADERS`。仓库提供的 Caddy 路由只在连接来源属于 Cloudflare 官方网段时使用 `CF-Connecting-IP`，其他连接会用实际连接地址覆盖 `X-Real-IP`；如果 Node 端口可以被公网直接访问，应保持为 `false`。
 
 IP 地理定位本身只能近似判断，有时也不会返回城市。只识别出国家时仍可进入对应国家榜；数据库返回一级行政区和城市后才会出现相应地区榜。请定期更新数据库。
 

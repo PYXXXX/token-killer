@@ -224,7 +224,7 @@ GEOIP_DATABASE_PATH=/geoip/GeoLite2-City.mmdb
 TRUST_PROXY_IP_HEADERS=true
 ```
 
-`TRUST_PROXY_IP_HEADERS=true` is safe only when the Node port is private and every request passes through your trusted Caddy/CDN. The provided Caddy route overwrites `X-Real-IP` with the connecting address. If the Node port is exposed directly to the internet, leave this setting `false`.
+`TRUST_PROXY_IP_HEADERS=true` is safe only when the Node port is private and every request passes through your trusted Caddy/CDN. The provided Caddy route uses `CF-Connecting-IP` only when the connection originates from Cloudflare's published ranges; all other connections overwrite `X-Real-IP` with the actual peer address. If the Node port is exposed directly to the internet, leave this setting `false`.
 
 GeoIP is approximate and sometimes lacks a city. A country-only match can still join its country ranking; region and city rankings appear when the database returns those fields. Keep the database updated.
 
