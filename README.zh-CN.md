@@ -8,7 +8,7 @@
 
 Token Killer 是一个纯前端实现的 Token 消耗器：填入接口、模型和目标额度，它会持续发起请求，并把这些毫无意义的 Token 消耗认真记录下来。
 
-[在线体验](https://pyxxxx.github.io/token-killer/) · [部署自己的 Token Killer](docs/deployment.zh-CN.md)
+[在线体验](https://burn.bilirec.com) · [部署自己的 Token Killer](docs/deployment.zh-CN.md)
 
 ## 为什么会有这个项目
 

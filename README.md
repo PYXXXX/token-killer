@@ -8,7 +8,7 @@ English | [简体中文](README.zh-CN.md)
 
 Token Killer is a browser-first token burner. Enter an endpoint, pick a model, set a budget, and it will keep making requests while carefully recording every gloriously pointless token spent.
 
-[Try it online](https://pyxxxx.github.io/token-killer/) · [Deploy your own Token Killer](docs/deployment.md)
+[Try it online](https://burn.bilirec.com) · [Deploy your own Token Killer](docs/deployment.md)
 
 ## Why this exists
 
