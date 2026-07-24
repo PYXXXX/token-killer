@@ -5,20 +5,20 @@ const NEGATIVE_CACHE_MS = 60_000
 const assertionCache = new Map()
 const assertionRequests = new Map()
 
-export function defaultMainlandGeoEndpoint() {
+export function defaultGeoEndpoint() {
   return new URL('/geo', globalThis.location?.origin || 'http://localhost').toString()
 }
 
-export function deriveMainlandGeoEndpoint(base) {
+export function deriveGeoEndpoint(base) {
   const value = String(base || '').trim()
   if (!value) return ''
   let url
   try {
     url = new URL(value, globalThis.location?.origin || 'http://localhost')
   } catch {
-    throw new Error('大陆地区探测地址无效')
+    throw new Error('地区探测地址无效')
   }
-  if (!['http:', 'https:'].includes(url.protocol)) throw new Error('大陆地区探测仅支持 HTTP 或 HTTPS')
+  if (!['http:', 'https:'].includes(url.protocol)) throw new Error('地区探测仅支持 HTTP 或 HTTPS')
   url.search = ''
   url.hash = ''
   if (!/(?:\/geo|\/api\/geo\/assertion)\/?$/i.test(url.pathname)) {
@@ -27,7 +27,7 @@ export function deriveMainlandGeoEndpoint(base) {
   return url.toString()
 }
 
-async function requestMainlandGeoAssertion(endpoint) {
+async function requestGeoAssertion(endpoint) {
   const controller = new AbortController()
   const timeout = globalThis.setTimeout(() => controller.abort(), GEO_REQUEST_TIMEOUT)
   try {
@@ -41,22 +41,23 @@ async function requestMainlandGeoAssertion(endpoint) {
     try {
       payload = await response.json()
     } catch {
-      return { reachable: false, mainland: false, assertion: '', expiresAt: 0, context: null, error: '地区探测服务返回了无法识别的响应' }
+      return { reachable: false, located: false, assertion: '', expiresAt: 0, context: null, error: '地区探测服务返回了无法识别的响应' }
     }
     if (!response.ok) {
       const message = typeof payload.error === 'string' ? payload.error : `地区探测服务返回 ${response.status}`
-      return { reachable: false, mainland: false, assertion: '', expiresAt: 0, context: null, error: message }
+      return { reachable: false, located: false, assertion: '', expiresAt: 0, context: null, error: message }
     }
     const expiresAt = Number(payload.expiresAt) || 0
+    const located = payload.located === true || payload.mainland === true
     if (
-      payload.mainland !== true ||
+      !located ||
       typeof payload.assertion !== 'string' ||
       !payload.assertion ||
       expiresAt <= Math.floor(Date.now() / 1000) + POSITIVE_CACHE_SKEW_SECONDS
     ) {
       return {
         reachable: true,
-        mainland: false,
+        located: false,
         assertion: '',
         expiresAt: 0,
         context: payload.context || null,
@@ -65,7 +66,7 @@ async function requestMainlandGeoAssertion(endpoint) {
     }
     return {
       reachable: true,
-      mainland: true,
+      located: true,
       assertion: payload.assertion,
       expiresAt,
       context: payload.context || null,
@@ -73,16 +74,16 @@ async function requestMainlandGeoAssertion(endpoint) {
     }
   } catch (error) {
     const message = error?.name === 'AbortError' ? '地区探测服务连接超时' : '无法连接地区探测服务，请检查地址和跨域设置'
-    return { reachable: false, mainland: false, assertion: '', expiresAt: 0, context: null, error: message }
+    return { reachable: false, located: false, assertion: '', expiresAt: 0, context: null, error: message }
   } finally {
     globalThis.clearTimeout(timeout)
   }
 }
 
-export async function resolveMainlandGeoAssertion(base) {
+export async function resolveGeoAssertion(base) {
   let endpoint
   try {
-    endpoint = deriveMainlandGeoEndpoint(base)
+    endpoint = deriveGeoEndpoint(base)
   } catch {
     return ''
   }
@@ -92,7 +93,7 @@ export async function resolveMainlandGeoAssertion(base) {
   if (cached && cached.validUntil > now) return cached.assertion
   if (assertionRequests.has(endpoint)) return assertionRequests.get(endpoint)
 
-  const request = requestMainlandGeoAssertion(endpoint)
+  const request = requestGeoAssertion(endpoint)
     .then((result) => {
       const validUntil = result.assertion
         ? Math.max(now, (result.expiresAt - POSITIVE_CACHE_SKEW_SECONDS) * 1000)
@@ -105,19 +106,19 @@ export async function resolveMainlandGeoAssertion(base) {
   return request
 }
 
-export async function checkMainlandGeoService(base) {
+export async function checkGeoService(base) {
   let endpoint
   try {
-    endpoint = deriveMainlandGeoEndpoint(base)
+    endpoint = deriveGeoEndpoint(base)
   } catch (error) {
-    return { reachable: false, mainland: false, assertion: '', expiresAt: 0, context: null, error: error.message }
+    return { reachable: false, located: false, assertion: '', expiresAt: 0, context: null, error: error.message }
   }
   if (!endpoint) {
-    return { reachable: false, mainland: false, assertion: '', expiresAt: 0, context: null, error: '请先填写地区探测地址' }
+    return { reachable: false, located: false, assertion: '', expiresAt: 0, context: null, error: '请先填写地区探测地址' }
   }
   assertionCache.delete(endpoint)
   assertionRequests.delete(endpoint)
-  const result = await requestMainlandGeoAssertion(endpoint)
+  const result = await requestGeoAssertion(endpoint)
   const now = Date.now()
   const validUntil = result.assertion
     ? Math.max(now, (result.expiresAt - POSITIVE_CACHE_SKEW_SECONDS) * 1000)
@@ -126,7 +127,7 @@ export async function checkMainlandGeoService(base) {
   return { ...result, endpoint }
 }
 
-export function clearMainlandGeoAssertionCache() {
+export function clearGeoAssertionCache() {
   assertionCache.clear()
   assertionRequests.clear()
 }

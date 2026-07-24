@@ -100,6 +100,7 @@ async function handleApi(request, env, url) {
           service: 'token-killer-community',
           storage: env.STORAGE_KIND || 'cloudflare-d1',
           verification: 'supplier-usage-client-receipt',
+          geoAssertion: geoAssertionSecret(env).length >= 32,
           mainlandGeoAssertion: geoAssertionSecret(env).length >= 32,
           geoIpDatabase: String(env.GEOIP_DATABASE_AVAILABLE || '').toLowerCase() === 'true',
           subscriptionOAuth: subscriptionStatus(env),
@@ -110,7 +111,7 @@ async function handleApi(request, env, url) {
     }
 
     if (request.method === 'POST' && ['/geo', '/api/geo/assertion'].includes(url.pathname)) {
-      return await createMainlandGeoAssertion(request, env, cors)
+      return await createGeoAssertion(request, env, cors)
     }
 
     if (
@@ -166,20 +167,15 @@ function trustedCountryCode(request, env) {
   ).toUpperCase()
 }
 
-async function createMainlandGeoAssertion(request, env, cors) {
+async function createGeoAssertion(request, env, cors) {
   const secret = geoAssertionSecret(env)
-  if (secret.length < 32) throw httpError(503, 'Mainland geo assertions are not configured.')
+  if (secret.length < 32) throw httpError(503, 'Geo assertions are not configured.')
   const body = await readJson(request)
   const nonce = requiredText(body.nonce, 'nonce', 16, 128)
   const trustedCountry = trustedCountryCode(request, env)
-  if (!trustedCountry) return json({ mainland: false, context: null }, 200, cors)
-  const geo = normalizedGeo(request)
-  if (trustedCountry !== 'CN' || geo.countryCode !== 'CN') {
-    return json({
-      mainland: false,
-      context: publicGeoContext({ ...geo, source: 'geo-probe' }, body.locale),
-    }, 200, cors)
-  }
+  if (!trustedCountry) return json({ located: false, mainland: false, context: null }, 200, cors)
+  const geo = normalizedGeo(request, env)
+  if (!geo.countryCode) return json({ located: false, mainland: false, context: null }, 200, cors)
   const issuedAt = Math.floor(Date.now() / 1000)
   const expiresAt = issuedAt + GEO_ASSERTION_TTL_SECONDS
   const payload = {
@@ -187,7 +183,7 @@ async function createMainlandGeoAssertion(request, env, cors) {
     issuedAt,
     expiresAt,
     nonce,
-    countryCode: 'CN',
+    countryCode: geo.countryCode,
     provinceCode: geo.provinceCode,
     provinceName: geo.provinceName,
     cityName: geo.cityName,
@@ -195,15 +191,18 @@ async function createMainlandGeoAssertion(request, env, cors) {
   const encoded = base64Url(new TextEncoder().encode(JSON.stringify(payload)))
   const assertion = `${encoded}.${await sign(secret, encoded)}`
   return json({
-    mainland: true,
+    located: true,
+    mainland: trustedCountry === 'CN' && geo.countryCode === 'CN',
     assertion,
     expiresAt,
-    context: publicGeoContext({ ...geo, source: 'mainland-direct' }, body.locale),
+    context: publicGeoContext({ ...geo, source: 'geo-service' }, body.locale),
   }, 200, cors)
 }
 
-async function preferredGeo(request, env, assertion) {
-  const fallback = { ...normalizedGeo(request), source: 'edge' }
+async function preferredGeo(request, env, assertion, manualRegion = null) {
+  const fallback = { ...normalizedGeo(request, env), source: 'edge' }
+  const manual = normalizedManualGeo(manualRegion)
+  if (manual) return manual
   const token = String(assertion || '')
   if (!token || token.length > 2048) return fallback
   const secret = geoAssertionSecret(env)
@@ -221,7 +220,8 @@ async function preferredGeo(request, env, assertion) {
   const now = Math.floor(Date.now() / 1000)
   if (
     payload.version !== 1 ||
-    payload.countryCode !== 'CN' ||
+    !/^[A-Z]{2}$/.test(payload.countryCode) ||
+    ['XX', 'T1'].includes(payload.countryCode) ||
     !Number.isInteger(payload.issuedAt) ||
     !Number.isInteger(payload.expiresAt) ||
     payload.issuedAt > now + GEO_ASSERTION_MAX_CLOCK_SKEW_SECONDS ||
@@ -232,16 +232,29 @@ async function preferredGeo(request, env, assertion) {
     payload.nonce.length > 128
   ) return fallback
 
+  if (payload.countryCode !== 'CN') {
+    const provinceCode = safeGeoText(payload.provinceCode, 12).toUpperCase() || null
+    const provinceName = safeGeoText(payload.provinceName, 80) || null
+    return {
+      countryCode: payload.countryCode,
+      provinceCode,
+      provinceName,
+      cityName: safeGeoText(payload.cityName, 80) || null,
+      source: 'geo-service',
+    }
+  }
   const provinceCode = safeGeoText(payload.provinceCode, 12).toUpperCase() || null
   const provinceName = safeGeoText(payload.provinceName, 80) || null
   const specialProvinceCode = SPECIAL_CHINA_REGION_CODES[provinceName]
-  if (specialProvinceCode || ['HK', 'MO', 'TW'].includes(provinceCode)) return fallback
+  const normalizedProvinceCode = specialProvinceCode || provinceCode
   return {
     countryCode: 'CN',
-    provinceCode,
+    provinceCode: normalizedProvinceCode,
     provinceName,
-    cityName: normalizeChinaCity(payload.cityName),
-    source: 'mainland-direct',
+    cityName: ['HK', 'MO'].includes(normalizedProvinceCode)
+      ? null
+      : normalizeChinaCity(payload.cityName),
+    source: 'geo-service',
   }
 }
 
@@ -253,7 +266,7 @@ async function getLeaderboard(request, env, url, cors) {
     ? requiredText(input.installationId, 'installationId', 16, 128)
     : ''
   const today = new Date().toISOString().slice(0, 10)
-  const geo = await preferredGeo(request, env, input.geoAssertion)
+  const geo = await preferredGeo(request, env, input.geoAssertion, input.manualRegion)
   const requestedScope = ['country', 'province', 'city'].includes(input.scope)
     ? input.scope
     : 'global'
@@ -365,7 +378,7 @@ async function getLeaderboardProfile(request, env, cors) {
   const installationId = requiredText(body.installationId, 'installationId', 16, 128)
   const profileHash = await digestIdentity(env.LEADERBOARD_HMAC_SECRET, `profile:${installationId}`)
   const profile = await getOrCreateLeaderboardProfile(env, profileHash)
-  const geo = await preferredGeo(request, env, body.geoAssertion)
+  const geo = await preferredGeo(request, env, body.geoAssertion, body.manualRegion)
   const context = publicGeoContext(geo, body.locale)
   const ranks = []
 
@@ -402,7 +415,7 @@ async function createSession(request, env, cors) {
     || request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
     || 'local'
   const ipHash = await digestIdentity(env.LEADERBOARD_HMAC_SECRET, `ip:${ip}`)
-  const geo = await preferredGeo(request, env, body.geoAssertion)
+  const geo = await preferredGeo(request, env, body.geoAssertion, body.manualRegion)
 
   const rate = await env.TOKEN_KILLER_DB.prepare(
     `SELECT COUNT(*) AS count
@@ -528,38 +541,95 @@ function scopeFilter(requestedScope, geo) {
     return { scope: 'country', clause: 'country_code = ?', bindings: [geo.countryCode] }
   }
 
-  if (requestedScope === 'province' && geo.countryCode === 'CN' && geo.provinceName) {
+  if (requestedScope === 'province' && geo.countryCode && geo.provinceName) {
     if (geo.provinceCode) {
       return {
         scope: 'province',
         clause: 'country_code = ? AND province_code = ?',
-        bindings: ['CN', geo.provinceCode],
+        bindings: [geo.countryCode, geo.provinceCode],
       }
     }
     return {
       scope: 'province',
       clause: 'country_code = ? AND province_name = ?',
-      bindings: ['CN', geo.provinceName],
+      bindings: [geo.countryCode, geo.provinceName],
     }
   }
 
-  if (requestedScope === 'city' && geo.countryCode === 'CN' && geo.cityName) {
-    const provinceClause = geo.provinceCode ? 'province_code = ?' : 'province_name = ?'
-    const provinceValue = geo.provinceCode || geo.provinceName
+  if (requestedScope === 'city' && geo.countryCode && geo.cityName) {
+    const provinceClause = geo.provinceCode
+      ? ' AND province_code = ?'
+      : geo.provinceName
+        ? ' AND province_name = ?'
+        : ''
+    const provinceBindings = geo.provinceCode
+      ? [geo.provinceCode]
+      : geo.provinceName
+        ? [geo.provinceName]
+        : []
     return {
       scope: 'city',
-      clause: `country_code = ? AND ${provinceClause} AND city_name = ?`,
-      bindings: ['CN', provinceValue, geo.cityName],
+      clause: `country_code = ?${provinceClause} AND city_name = ?`,
+      bindings: [geo.countryCode, ...provinceBindings, geo.cityName],
     }
   }
 
   return { scope: 'global', clause: '', bindings: [] }
 }
 
-function normalizedGeo(request) {
+function normalizedManualGeo(value) {
+  if (!value || typeof value !== 'object') return null
+  const rawCountry = safeGeoText(value.countryCode, 2).toUpperCase()
+  if (!/^[A-Z]{2}$/.test(rawCountry) || ['XX', 'T1'].includes(rawCountry)) return null
+  if (SPECIAL_CHINA_REGIONS[rawCountry]) {
+    return {
+      countryCode: 'CN',
+      provinceCode: rawCountry,
+      provinceName: SPECIAL_CHINA_REGIONS[rawCountry],
+      cityName: null,
+      source: 'manual',
+    }
+  }
+
+  const rawRegionCode = safeGeoText(value.regionCode, 12)
+    .toUpperCase()
+    .replace(new RegExp(`^${rawCountry}-`), '') || null
+  const rawRegionName = safeGeoText(value.regionName, 80) || null
+  if (rawCountry !== 'CN') {
+    return {
+      countryCode: rawCountry,
+      provinceCode: rawRegionCode,
+      provinceName: rawRegionName,
+      cityName: safeGeoText(value.cityName, 80) || null,
+      source: 'manual',
+    }
+  }
+
+  const provinceKey = String(rawRegionName || '').toLowerCase().replace(/[\s-]+/g, '_')
+  const provinceName = CHINA_PROVINCES[rawRegionCode]
+    || CHINA_NUMERIC_PROVINCES[rawRegionCode]
+    || CHINA_REGION_NAMES[provinceKey]
+    || rawRegionName
+    || null
+  const specialProvinceCode = SPECIAL_CHINA_REGION_CODES[provinceName]
+  const provinceCode = specialProvinceCode || rawRegionCode
+  return {
+    countryCode: 'CN',
+    provinceCode,
+    provinceName,
+    cityName: ['HK', 'MO'].includes(provinceCode)
+      ? null
+      : normalizeChinaCity(value.cityName),
+    source: 'manual',
+  }
+}
+
+function normalizedGeo(request, env = {}) {
   const cf = request.cf || {}
+  const trustGeoHeaders = String(env.TRUST_GEO_HEADERS || '').toLowerCase() === 'true'
+  const trustedHeader = (name) => trustGeoHeaders ? request.headers.get(name) : ''
   const rawCountry = safeGeoText(
-    cf.country || request.headers.get('x-geo-country') || request.headers.get('cf-ipcountry'),
+    cf.country || trustedHeader('x-geo-country') || trustedHeader('cf-ipcountry'),
     2,
   ).toUpperCase()
   if (!/^[A-Z]{2}$/.test(rawCountry) || ['XX', 'T1'].includes(rawCountry)) {
@@ -571,18 +641,27 @@ function normalizedGeo(request) {
       countryCode: 'CN',
       provinceCode: rawCountry,
       provinceName: SPECIAL_CHINA_REGIONS[rawCountry],
-      cityName: null,
+      cityName: ['HK', 'MO'].includes(rawCountry)
+        ? null
+        : normalizeChinaCity(cf.city || trustedHeader('x-geo-city')),
     }
   }
 
   if (rawCountry !== 'CN') {
-    return { countryCode: rawCountry, provinceCode: null, provinceName: null, cityName: null }
+    return {
+      countryCode: rawCountry,
+      provinceCode: safeGeoText(cf.regionCode || trustedHeader('x-geo-region-code'), 12)
+        .toUpperCase()
+        .replace(new RegExp(`^${rawCountry}-`), '') || null,
+      provinceName: safeGeoText(cf.region || trustedHeader('x-geo-region'), 80) || null,
+      cityName: safeGeoText(cf.city || trustedHeader('x-geo-city'), 80) || null,
+    }
   }
 
-  const provinceCode = safeGeoText(cf.regionCode || request.headers.get('x-geo-region-code'), 12)
+  const provinceCode = safeGeoText(cf.regionCode || trustedHeader('x-geo-region-code'), 12)
     .toUpperCase()
     .replace(/^CN-/, '') || null
-  const rawProvinceName = safeGeoText(cf.region || request.headers.get('x-geo-region'), 80)
+  const rawProvinceName = safeGeoText(cf.region || trustedHeader('x-geo-region'), 80)
   const provinceKey = rawProvinceName.toLowerCase().replace(/[\s-]+/g, '_')
   const provinceName = CHINA_PROVINCES[provinceCode]
     || CHINA_NUMERIC_PROVINCES[provinceCode]
@@ -603,7 +682,7 @@ function normalizedGeo(request) {
     countryCode: 'CN',
     provinceCode,
     provinceName,
-    cityName: normalizeChinaCity(cf.city || request.headers.get('x-geo-city')),
+    cityName: normalizeChinaCity(cf.city || trustedHeader('x-geo-city')),
   }
 }
 
@@ -622,10 +701,10 @@ function publicGeoContext(geo, locale = 'zh-CN') {
     ? CHINA_PROVINCES_EN[geo.provinceCode] || geo.provinceName
     : geo.provinceName
   if (countryName) scopes.push({ id: 'country', label: countryName })
-  if (geo.countryCode === 'CN' && provinceName) {
+  if (provinceName) {
     scopes.push({ id: 'province', label: provinceName })
   }
-  if (geo.countryCode === 'CN' && geo.cityName) {
+  if (geo.cityName) {
     scopes.push({ id: 'city', label: geo.cityName })
   }
 

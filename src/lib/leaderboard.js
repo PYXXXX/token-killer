@@ -1,5 +1,6 @@
 import { getInstallationId } from './storage.js'
-import { resolveMainlandGeoAssertion } from './geo.js'
+import { resolveGeoAssertion } from './geo.js'
+import { sanitizeManualRegion } from './regions.js'
 
 const REQUEST_TIMEOUT = 5000
 const PARTICIPANT_LABEL_PATTERN = /^燃烧者 #[1-9]\d{5}$/
@@ -44,9 +45,9 @@ async function request(base, path, options = {}) {
   }
 }
 
-export async function getLeaderboard(base, period = 'day', scope = 'global', page = 1, locale = 'zh-CN', mainlandGeoApiUrl = '') {
+export async function getLeaderboard(base, period = 'day', scope = 'global', page = 1, locale = 'zh-CN', geoApiUrl = '', manualRegion = null) {
   const safeScope = ['country', 'province', 'city'].includes(scope) ? scope : 'global'
-  const geoAssertion = await resolveMainlandGeoAssertion(mainlandGeoApiUrl)
+  const geoAssertion = await resolveGeoAssertion(geoApiUrl)
   return request(base, '/api/leaderboard', {
     method: 'POST',
     body: JSON.stringify({
@@ -56,22 +57,28 @@ export async function getLeaderboard(base, period = 'day', scope = 'global', pag
       page: Math.min(10, Math.max(1, Number.parseInt(page, 10) || 1)),
       locale,
       geoAssertion: geoAssertion || undefined,
+      manualRegion: manualRegion?.countryCode ? sanitizeManualRegion(manualRegion) : undefined,
     }),
   })
 }
 
-export async function getLeaderboardProfile(base, locale = 'zh-CN', mainlandGeoApiUrl = '') {
-  const geoAssertion = await resolveMainlandGeoAssertion(mainlandGeoApiUrl)
+export async function getLeaderboardProfile(base, locale = 'zh-CN', geoApiUrl = '', manualRegion = null) {
+  const geoAssertion = await resolveGeoAssertion(geoApiUrl)
   return request(base, '/api/leaderboard/profile', {
     method: 'POST',
-    body: JSON.stringify({ installationId: getInstallationId(), locale, geoAssertion: geoAssertion || undefined }),
+    body: JSON.stringify({
+      installationId: getInstallationId(),
+      locale,
+      geoAssertion: geoAssertion || undefined,
+      manualRegion: manualRegion?.countryCode ? sanitizeManualRegion(manualRegion) : undefined,
+    }),
   })
 }
 
 export async function createLeaderboardSession(base, settings) {
   if (!settings.publishToLeaderboard) return null
-  const geoAssertion = settings.preferMainlandRegion
-    ? await resolveMainlandGeoAssertion(settings.mainlandGeoApiUrl)
+  const geoAssertion = settings.autoSelectRegion
+    ? await resolveGeoAssertion(settings.geoApiUrl)
     : ''
   return request(base, '/api/leaderboard/sessions', {
     method: 'POST',
@@ -82,6 +89,9 @@ export async function createLeaderboardSession(base, settings) {
       targetMode: settings.targetMode,
       targetValue: settings.targetMode === 'money' ? Number(settings.targetAmount) : Number(settings.targetTokens),
       geoAssertion: geoAssertion || undefined,
+      manualRegion: !settings.autoSelectRegion && settings.manualRegion?.countryCode
+        ? sanitizeManualRegion(settings.manualRegion)
+        : undefined,
     }),
   })
 }

@@ -1,32 +1,32 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
-  clearMainlandGeoAssertionCache,
-  checkMainlandGeoService,
-  defaultMainlandGeoEndpoint,
-  deriveMainlandGeoEndpoint,
-  resolveMainlandGeoAssertion,
+  checkGeoService,
+  clearGeoAssertionCache,
+  defaultGeoEndpoint,
+  deriveGeoEndpoint,
+  resolveGeoAssertion,
 } from '../src/lib/geo.js'
 
 test('derives a geo assertion endpoint from either a base URL or full endpoint', () => {
   assert.equal(
-    deriveMainlandGeoEndpoint('https://geo.example.cn/'),
+    deriveGeoEndpoint('https://geo.example.cn/'),
     'https://geo.example.cn/geo',
   )
-  assert.equal(deriveMainlandGeoEndpoint('https://geo.example.cn/geo'), 'https://geo.example.cn/geo')
+  assert.equal(deriveGeoEndpoint('https://geo.example.cn/geo'), 'https://geo.example.cn/geo')
   assert.equal(
-    deriveMainlandGeoEndpoint('https://geo.example.cn/prefix/api/geo/assertion?ignored=1'),
+    deriveGeoEndpoint('https://geo.example.cn/prefix/api/geo/assertion?ignored=1'),
     'https://geo.example.cn/prefix/api/geo/assertion',
   )
-  assert.match(defaultMainlandGeoEndpoint(), /\/geo$/)
+  assert.match(defaultGeoEndpoint(), /\/geo$/)
 })
 
-test('uses and caches only a positive mainland assertion', async (context) => {
-  clearMainlandGeoAssertionCache()
+test('uses and caches a signed region assertion', async (context) => {
+  clearGeoAssertionCache()
   const originalFetch = globalThis.fetch
   context.after(() => {
     globalThis.fetch = originalFetch
-    clearMainlandGeoAssertionCache()
+    clearGeoAssertionCache()
   })
   let requests = 0
   globalThis.fetch = async (url, options) => {
@@ -35,58 +35,61 @@ test('uses and caches only a positive mainland assertion', async (context) => {
     assert.equal(options.method, 'POST')
     assert.ok(JSON.parse(options.body).nonce.length >= 16)
     return new Response(JSON.stringify({
-      mainland: true,
-      assertion: 'signed-mainland-location',
+      located: true,
+      assertion: 'signed-region-location',
       expiresAt: Math.floor(Date.now() / 1000) + 600,
     }), { status: 200, headers: { 'content-type': 'application/json' } })
   }
 
   const [first, second] = await Promise.all([
-    resolveMainlandGeoAssertion('https://geo.example.cn'),
-    resolveMainlandGeoAssertion('https://geo.example.cn'),
+    resolveGeoAssertion('https://geo.example.cn'),
+    resolveGeoAssertion('https://geo.example.cn'),
   ])
-  const cached = await resolveMainlandGeoAssertion('https://geo.example.cn')
-  assert.equal(first, 'signed-mainland-location')
+  const cached = await resolveGeoAssertion('https://geo.example.cn')
+  assert.equal(first, 'signed-region-location')
   assert.equal(second, first)
   assert.equal(cached, first)
   assert.equal(requests, 1)
 })
 
-test('manual probe reports a reachable non-mainland result without an assertion', async (context) => {
-  clearMainlandGeoAssertionCache()
+test('manual probe reports a signed non-China network exit', async (context) => {
+  clearGeoAssertionCache()
   const originalFetch = globalThis.fetch
   context.after(() => {
     globalThis.fetch = originalFetch
-    clearMainlandGeoAssertionCache()
+    clearGeoAssertionCache()
   })
   globalThis.fetch = async () => new Response(JSON.stringify({
-    mainland: false,
+    located: true,
+    assertion: 'signed-singapore-location',
+    expiresAt: Math.floor(Date.now() / 1000) + 600,
     context: { directory: ['新加坡'] },
   }), { status: 200, headers: { 'content-type': 'application/json' } })
 
-  const result = await checkMainlandGeoService('https://geo.example.cn')
+  const result = await checkGeoService('https://geo.example.cn')
   assert.equal(result.reachable, true)
-  assert.equal(result.mainland, false)
+  assert.equal(result.located, true)
+  assert.equal(result.assertion, 'signed-singapore-location')
   assert.deepEqual(result.context.directory, ['新加坡'])
 })
 
-test('falls back silently for non-mainland and failed probes', async (context) => {
-  clearMainlandGeoAssertionCache()
+test('falls back silently for unknown and failed probes', async (context) => {
+  clearGeoAssertionCache()
   const originalFetch = globalThis.fetch
   context.after(() => {
     globalThis.fetch = originalFetch
-    clearMainlandGeoAssertionCache()
+    clearGeoAssertionCache()
   })
 
-  globalThis.fetch = async () => new Response(JSON.stringify({ mainland: false }), {
+  globalThis.fetch = async () => new Response(JSON.stringify({ located: false }), {
     status: 200,
     headers: { 'content-type': 'application/json' },
   })
-  assert.equal(await resolveMainlandGeoAssertion('https://outside.example'), '')
+  assert.equal(await resolveGeoAssertion('https://unknown.example'), '')
 
   globalThis.fetch = async () => {
     throw new TypeError('network failed')
   }
-  assert.equal(await resolveMainlandGeoAssertion('https://unreachable.example'), '')
-  assert.equal(await resolveMainlandGeoAssertion('not a valid URL'), '')
+  assert.equal(await resolveGeoAssertion('https://unreachable.example'), '')
+  assert.equal(await resolveGeoAssertion('not a valid URL'), '')
 })

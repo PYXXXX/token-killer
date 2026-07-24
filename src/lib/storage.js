@@ -1,4 +1,5 @@
 import { getProviderIdentity } from './providerGuard.js'
+import { sanitizeManualRegion } from './regions.js'
 
 const SETTINGS_KEY = 'token-killer:settings:v1'
 const RUNS_KEY = 'token-killer:runs:v1'
@@ -64,11 +65,26 @@ export function clearProviderBlocklist() {
 
 export function readSettings(fallback) {
   try {
-    const { nickname: _nickname, apiKey: _apiKey, ...saved } = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')
-    const preferMainlandRegion = Object.hasOwn(saved, 'preferMainlandRegion')
-      ? Boolean(saved.preferMainlandRegion)
-      : Boolean(saved.mainlandGeoApiUrl)
-    return { ...fallback, ...saved, preferMainlandRegion, apiKey: '' }
+    const {
+      nickname: _nickname,
+      apiKey: _apiKey,
+      preferMainlandRegion,
+      mainlandGeoApiUrl,
+      useGeoService,
+      ...saved
+    } = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')
+    const autoSelectRegion = Object.hasOwn(saved, 'autoSelectRegion')
+      ? Boolean(saved.autoSelectRegion)
+      : useGeoService !== undefined
+        ? Boolean(useGeoService)
+        : preferMainlandRegion !== undefined
+          ? Boolean(preferMainlandRegion)
+          : mainlandGeoApiUrl !== undefined
+            ? Boolean(mainlandGeoApiUrl)
+            : fallback.autoSelectRegion !== false
+    const geoApiUrl = saved.geoApiUrl || mainlandGeoApiUrl || fallback.geoApiUrl
+    const manualRegion = sanitizeManualRegion(saved.manualRegion || fallback.manualRegion)
+    return { ...fallback, ...saved, autoSelectRegion, geoApiUrl, manualRegion, apiKey: '' }
   } catch {
     return fallback
   }

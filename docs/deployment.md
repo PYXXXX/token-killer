@@ -193,11 +193,11 @@ https://token-killer.your-account.workers.dev
 
 After entering the OAuth service, click **Check service**. Login buttons for ChatGPT, Claude, Gemini, and Grok are enabled only after the health check succeeds and reports that provider as available. If Gemini client credentials are missing, the other providers remain available while Gemini stays disabled.
 
-## Optional: prefer a mainland-direct region lookup
+## Optional: region detection service
 
-A visitor in mainland China may browse through a rules-based proxy: overseas destinations use the proxy, while a mainland destination is reached directly. If the leaderboard runs overseas, its edge location may therefore see the proxy exit instead of the visitor's mainland province and city.
+Token Killer can ask a dedicated endpoint for a short-lived signed region assertion before contacting the leaderboard. The assertion represents the network exit observed by that endpoint. If the browser uses a proxy, it normally represents the proxy exit rather than the visitor's physical location.
 
-Token Killer can ask a separate mainland-accessible endpoint for a short-lived signed location assertion before contacting the leaderboard. A valid assertion that says `CN` takes priority. If the probe times out, returns a non-mainland result, or fails signature validation, the leaderboard quietly falls back to its own edge location. Hong Kong SAR, Macao SAR, and Taiwan Province remain under China's province-level directory and are never treated as a mainland-direct match.
+A valid assertion takes priority over the leaderboard edge lookup. If detection times out, returns no location, or fails signature validation, the leaderboard quietly falls back to its own edge location. Every country supports country, first-level region, and city rankings when those fields are available. Hong Kong SAR, Macao SAR, and Taiwan Province remain under China; Taiwan Province supports city rankings, while Hong Kong and Macao remain province-level only.
 
 This endpoint is optional and is used only for leaderboard location. It never receives an API key, OAuth credential, installation ID, prompt, model response, or inference request.
 
@@ -205,11 +205,11 @@ This endpoint is optional and is used only for leaderboard location. It never re
 
 The included Worker/Node API exposes `POST /geo`; the older `POST /api/geo/assertion` path remains compatible. When the frontend and API share an origin, update the reverse proxy so `/geo` reaches the API container. The provided Caddy snippet already includes this route.
 
-The settings switch is off by default unless `VITE_MAINLAND_GEO_API_URL` was configured at build time. When a visitor enables **Prefer the mainland China region**, the frontend fills in `/geo` on the current origin, checks it before leaderboard calls, and shows the detected region. A different HTTPS origin can be entered at any time.
+**Select region automatically** is enabled by default. The frontend fills in `/geo` on the current origin, checks it before leaderboard calls, and labels the result as a network exit location. A different HTTPS origin can be entered at any time. Turning automatic selection off reveals manual country, first-level region, and city controls. `VITE_GEO_API_URL` changes the default service URL; the legacy `VITE_MAINLAND_GEO_API_URL` build variable is still accepted.
 
 ### 2. Give a Singapore VPS a local GeoIP database
 
-A Node service does not receive Cloudflare's `request.cf`. To make `/geo` work directly on a Singapore VPS, Token Killer can read a GeoLite2 City or Country `.mmdb` file locally through MaxMind's official Node reader. The lookup stays on the VPS and does not send the visitor's IP to another geolocation API. City enables province and city rankings; Country remains a supported fallback when only the mainland/non-mainland assertion is required.
+A Node service does not receive Cloudflare's `request.cf`. To make `/geo` work directly on a Singapore VPS, Token Killer can read a GeoLite2 City or Country `.mmdb` file locally through MaxMind's official Node reader. The lookup stays on the VPS and does not send the visitor's IP to another geolocation API. City enables first-level region and city rankings; Country is enough for country-level rankings.
 
 Download a current city database from [MaxMind](https://dev.maxmind.com/geoip/geolite2-free-geolocation-data), then place it at:
 
@@ -226,17 +226,17 @@ TRUST_PROXY_IP_HEADERS=true
 
 `TRUST_PROXY_IP_HEADERS=true` is safe only when the Node port is private and every request passes through your trusted Caddy/CDN. The provided Caddy route overwrites `X-Real-IP` with the connecting address. If the Node port is exposed directly to the internet, leave this setting `false`.
 
-GeoIP is approximate and sometimes lacks a city. A country-only match can still join China's national ranking; province and city rankings appear only when the database returns those fields. Keep the database updated.
+GeoIP is approximate and sometimes lacks a city. A country-only match can still join its country ranking; region and city rankings appear when the database returns those fields. Keep the database updated.
 
-### 3. Preserve a direct network path
+### 3. Understand proxy results
 
 Running the API in Singapore is supported, but no server can recover the residential IP after an HTTP proxy has replaced it. If the current site origin itself goes through the proxy, same-origin `/geo` sees the proxy exit too.
 
-For rules-based proxy users, bind `/geo` to a separate direct-friendly hostname or put that hostname behind a CDN/load balancer whose route remains direct and preserves the original client IP. Users can enter that hostname in **Geo detection service**. If a trusted upstream already supplies normalized location fields instead of an IP database, set `TRUST_GEO_HEADERS=true` and inject `X-Geo-Country`, `X-Geo-Region-Code`, `X-Geo-Region`, and `X-Geo-City`; the proxy must strip any visitor-supplied copies first.
+For rules-based proxy users, a separate direct-friendly hostname may produce a different network exit, but the browser cannot force a request to bypass its proxy. Users can enter another hostname in **Geo detection service**. If a trusted upstream already supplies normalized location fields instead of an IP database, set `TRUST_GEO_HEADERS=true` and inject `X-Geo-Country`, `X-Geo-Region-Code`, `X-Geo-Region`, and `X-Geo-City`; the proxy must strip any visitor-supplied copies first.
 
 ### 4. Share a dedicated signing secret
 
-Configure the same secret on the mainland probe and the leaderboard service:
+Configure the same secret on the detection service and the leaderboard service:
 
 ```bash
 npx wrangler secret put GEO_ASSERTION_HMAC_SECRET
@@ -246,15 +246,15 @@ For the VPS deployment, place the value in `/opt/token-killer/secrets/geo_assert
 
 Add the frontend origin to the probe's `ALLOWED_ORIGINS`. GitHub Pages is HTTPS, so the probe must also use HTTPS or the browser will block it as mixed content.
 
-### 5. Point the frontend at the probe
+### 5. Point the frontend at the detection service
 
-Visitors enable **Settings → Prefer the mainland China region** and can keep the current-origin `/geo` default or enter another service URL. To enable the switch and provide a default in a GitHub Pages fork, open **Settings → Secrets and variables → Actions → Variables** and create:
+Automatic selection is enabled by default. Visitors can keep the current-origin `/geo` default, enter another service URL, or turn automatic selection off and choose a region manually. To provide a different default URL in a GitHub Pages fork, open **Settings → Secrets and variables → Actions → Variables** and create:
 
 ```text
-VITE_MAINLAND_GEO_API_URL=https://geo.example.cn
+VITE_GEO_API_URL=https://geo.example.com
 ```
 
-Push to `main` or rerun **Deploy to GitHub Pages**. The workflow exposes this public URL only at build time; the signing secret is never part of the frontend build. You can also set `VITE_MAINLAND_GEO_API_URL` before a local or Cloudflare build.
+Push to `main` or rerun **Deploy to GitHub Pages**. The workflow exposes this public URL only at build time; the signing secret is never part of the frontend build. You can also set `VITE_GEO_API_URL` before a local or Cloudflare build.
 
 Assertions expire after ten minutes and are cached briefly in the browser. They carry normalized location fields, timestamps, and a random nonce. They do not carry the raw IP address, although the probe's infrastructure can necessarily observe the source IP while serving the request. Review or disable proxy access logs according to your privacy policy.
 

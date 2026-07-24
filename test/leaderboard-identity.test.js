@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import worker from '../worker/index.js'
 import { normalizeLeaderboardParticipantLabel } from '../src/lib/leaderboard.js'
-import { getParticipantLabel } from '../src/lib/storage.js'
+import { getParticipantLabel, readSettings } from '../src/lib/storage.js'
 
 class MemoryStorage {
   constructor() {
@@ -88,6 +88,24 @@ test('leaderboard validates server-issued labels and rejects arbitrary names', (
   assert.equal(normalizeLeaderboardParticipantLabel('Alice'), '')
   assert.equal(normalizeLeaderboardParticipantLabel('燃烧者 #000001'), '')
   assert.equal(normalizeLeaderboardParticipantLabel('<script>alert(1)</script>'), '')
+})
+
+test('legacy mainland probe settings migrate to the generic geo service', () => {
+  localStorage.setItem('token-killer:settings:v1', JSON.stringify({
+    preferMainlandRegion: true,
+    mainlandGeoApiUrl: 'https://geo.example.cn',
+  }))
+  const settings = readSettings({ autoSelectRegion: true, geoApiUrl: '/geo', manualRegion: {} })
+  assert.equal(settings.autoSelectRegion, true)
+  assert.equal(settings.geoApiUrl, 'https://geo.example.cn')
+  assert.equal('preferMainlandRegion' in settings, false)
+  assert.equal('mainlandGeoApiUrl' in settings, false)
+})
+
+test('fresh settings preserve a build-configured geo service default', () => {
+  const settings = readSettings({ autoSelectRegion: true, geoApiUrl: 'https://geo.example.com', manualRegion: {} })
+  assert.equal(settings.autoSelectRegion, true)
+  assert.equal(settings.geoApiUrl, 'https://geo.example.com')
 })
 
 test('leaderboard issues stable unique numbers and ignores a submitted nickname', async () => {

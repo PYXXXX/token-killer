@@ -193,11 +193,11 @@ https://token-killer.你的账号.workers.dev
 
 填写 OAuth 授权服务后，先点击“检测服务”。只有 Worker 健康检查通过，并且返回对应平台可用时，ChatGPT、Claude、Gemini、Grok 的登录按钮才会启用。未配置 Gemini Client ID 与 Client Secret 时，其他入口仍可使用，Gemini 按钮会保持不可用。
 
-## 可选：优先识别大陆直连地区
+## 可选：地区探测服务
 
-中国大陆用户经常使用规则代理：访问海外地址时走代理，访问大陆地址时保持直连。如果排行榜部署在境外，它看到的可能是代理出口，而不是用户实际所在的大陆省市。
+Token Killer 可以先向专用地址申请短时签名地区凭证，再访问排行榜。这个凭证代表探测服务看到的网络出口位置；如果浏览器正在使用代理，它通常会对应代理出口，而不是用户实际所在位置。
 
-Token Killer 可以先向一个大陆可直连地址申请短时签名地区凭证，再访问排行榜。只有签名有效且国家为 `CN` 的凭证才会优先使用；探测超时、返回非大陆、签名无效时都会静默回退到排行榜边缘节点的定位。香港特别行政区、澳门特别行政区和台湾省仍归入“中国”目录下的省级地区，不会被当作“大陆直连”结果。
+签名有效时，排行榜会优先使用这份结果；探测超时、没有识别出地区或签名无效时，都会静默回退到排行榜边缘节点的定位。所有国家在能够取得相应字段时都支持国家、一级行政区和城市排行榜。香港特别行政区、澳门特别行政区和台湾省仍归入“中国”目录；台湾省支持城市排行榜，香港和澳门仅支持省级排行。
 
 这个接口完全可选，只用于排行榜地区识别。它不会收到 API Key、OAuth 凭据、安装编号、Prompt、模型响应或任何推理请求。
 
@@ -205,11 +205,11 @@ Token Killer 可以先向一个大陆可直连地址申请短时签名地区凭�
 
 仓库内的 Worker/Node API 已提供 `POST /geo`，旧的 `POST /api/geo/assertion` 地址继续兼容。当前端与 API 使用同一域名时，需要让反向代理把 `/geo` 转发给 API 容器；仓库提供的 Caddy 片段已经包含这条路由。
 
-除非构建时配置了 `VITE_MAINLAND_GEO_API_URL`，这个功能默认关闭。用户开启“优先参与中国大陆赛区”后，前端会自动填入当前域名的 `/geo`，在访问排行榜前先进行探测，并显示本次识别结果；用户也可以随时换成其他 HTTPS 域名。
+“自动选择地区”默认开启。前端会自动填入当前域名的 `/geo`，在访问排行榜前先进行探测，并把结果明确标注为网络出口位置；用户也可以随时换成其他 HTTPS 域名。关闭自动选择后，可以手动指定国家、一级行政区和城市。`VITE_GEO_API_URL` 用于修改默认服务地址，旧的 `VITE_MAINLAND_GEO_API_URL` 构建变量仍然兼容。
 
 ### 2. 让新加坡 VPS 具备本地 IP 地区识别
 
-普通 Node 服务没有 Cloudflare 的 `request.cf`。为了让新加坡 VPS 上的 `/geo` 能自行工作，Token Killer 现在支持通过 MaxMind 官方 Node 读取器在本机查询 GeoLite2 City 或 Country `.mmdb` 数据库。整个查询留在 VPS 内，不会把访客 IP 再发送给其他地区查询 API。City 数据库可以提供省市排行榜；只需要判断大陆/非大陆时，也可以使用 Country 数据库作为后备。
+普通 Node 服务没有 Cloudflare 的 `request.cf`。为了让新加坡 VPS 上的 `/geo` 能自行工作，Token Killer 支持通过 MaxMind 官方 Node 读取器在本机查询 GeoLite2 City 或 Country `.mmdb` 数据库。整个查询留在 VPS 内，不会把访客 IP 再发送给其他地区查询 API。City 数据库可以提供一级行政区和城市排行榜；Country 数据库足以支持国家排行榜。
 
 从 [MaxMind](https://dev.maxmind.com/geoip/geolite2-free-geolocation-data) 下载最新城市数据库，并放到：
 
@@ -226,13 +226,13 @@ TRUST_PROXY_IP_HEADERS=true
 
 只有 Node 端口没有暴露到公网、所有请求都必须经过可信 Caddy/CDN 时，才能开启 `TRUST_PROXY_IP_HEADERS`。仓库提供的 Caddy 路由会用连接来源覆盖 `X-Real-IP`；如果 Node 端口可以被公网直接访问，应保持为 `false`。
 
-IP 地理定位本身只能近似判断，有时也不会返回城市。只识别出国家时仍可进入中国全国榜，返回省市后才会出现对应地区榜。请定期更新数据库。
+IP 地理定位本身只能近似判断，有时也不会返回城市。只识别出国家时仍可进入对应国家榜；数据库返回一级行政区和城市后才会出现相应地区榜。请定期更新数据库。
 
-### 3. 保留一条真正直连的网络路径
+### 3. 理解代理环境下的结果
 
 API 可以部署在新加坡，但 HTTP 代理替换来源 IP 后，任何服务端代码都无法恢复用户原来的住宅 IP。如果当前站点域名本身会走代理，同域 `/geo` 看到的也仍然是代理出口。
 
-面向规则代理用户时，可以给 `/geo` 绑定一个独立的直连友好域名，或者使用能够保持直连并传递原始客户端 IP 的 CDN/负载均衡器，然后让用户在“地区探测服务”中填写该域名。如果可信上游已经直接提供规范化地区而不是原始 IP，也可以设置 `TRUST_GEO_HEADERS=true` 并注入 `X-Geo-Country`、`X-Geo-Region-Code`、`X-Geo-Region`、`X-Geo-City`；上游必须先删除访客自行携带的同名 Header。
+面向规则代理用户时，独立的直连友好域名可能得到不同的网络出口，但网页无法强制某个请求绕过用户代理。用户可以在“地区探测服务”中填写其他域名。如果可信上游已经直接提供规范化地区而不是原始 IP，也可以设置 `TRUST_GEO_HEADERS=true` 并注入 `X-Geo-Country`、`X-Geo-Region-Code`、`X-Geo-Region`、`X-Geo-City`；上游必须先删除访客自行携带的同名 Header。
 
 ### 4. 在探测服务和排行榜之间共享专用签名密钥
 
@@ -248,13 +248,13 @@ npx wrangler secret put GEO_ASSERTION_HMAC_SECRET
 
 ### 5. 让前端使用探测服务
 
-用户在 **配置 → 优先参与中国大陆赛区** 开启功能后，可以保留当前域名 `/geo`，也可以填写其他服务地址。若希望自己的 GitHub Pages Fork 默认开启并使用指定地址，进入仓库 **Settings → Secrets and variables → Actions → Variables**，添加：
+自动选择地区默认开启。用户可以保留当前域名 `/geo`、填写其他服务地址，或者关闭自动选择并手动指定赛区。若希望自己的 GitHub Pages Fork 使用指定的默认地址，进入仓库 **Settings → Secrets and variables → Actions → Variables**，添加：
 
 ```text
-VITE_MAINLAND_GEO_API_URL=https://geo.example.cn
+VITE_GEO_API_URL=https://geo.example.com
 ```
 
-随后推送到 `main`，或重新运行 **Deploy to GitHub Pages**。工作流只会把这个公开 URL 注入前端构建，签名密钥绝不会进入前端。自行本地构建或部署 Cloudflare 时，也可以在构建前设置 `VITE_MAINLAND_GEO_API_URL`。
+随后推送到 `main`，或重新运行 **Deploy to GitHub Pages**。工作流只会把这个公开 URL 注入前端构建，签名密钥绝不会进入前端。自行本地构建或部署 Cloudflare 时，也可以在构建前设置 `VITE_GEO_API_URL`。
 
 地区凭证十分钟后失效，并会在浏览器中短暂缓存。凭证只含规范化后的地区、时间和随机 nonce，不含原始 IP；但探测服务的网络基础设施在响应请求时必然能够看到来源 IP，请按自己的隐私策略审查或关闭访问日志。
 
