@@ -3167,15 +3167,6 @@ main {
     align-items: flex-start;
   }
 
-  .achievement-track {
-    margin-right: -18px;
-    padding-right: 18px;
-  }
-
-  .achievement-card {
-    flex-basis: min(78vw, 250px);
-  }
-
   .activity-tabs {
     justify-content: flex-start;
   }

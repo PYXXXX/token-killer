@@ -404,6 +404,7 @@ async function syncProfileAchievements(env, profileHash) {
          COUNT(*) AS run_count,
          COALESCE(SUM(tokens), 0) AS total_tokens,
          COALESCE(SUM(rounds), 0) AS total_rounds,
+         COALESCE(SUM(cost_micros), 0) AS total_cost_micros,
          COUNT(DISTINCT model) AS model_count,
          COALESCE(MAX(cost_micros), 0) AS max_run_cost_micros
        FROM leaderboard_runs
@@ -429,9 +430,12 @@ async function syncProfileAchievements(env, profileHash) {
     runCount: Number(aggregate.run_count || 0),
     totalTokens: Number(aggregate.total_tokens || 0),
     totalRounds: Number(aggregate.total_rounds || 0),
+    totalCost: Number(aggregate.total_cost_micros || 0) / 1_000_000,
     modelCount: Number(aggregate.model_count || 0),
+    providerCount: (providerResult.results || []).length,
     providerModeCount: providerModes.size,
     maxRunCost: Number(aggregate.max_run_cost_micros || 0) / 1_000_000,
+    activeDays: (dateResult.results || []).length,
     longestStreak: longestActivityStreak(dateResult.results),
   }
   const existing = new Map(

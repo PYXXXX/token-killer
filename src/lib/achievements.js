@@ -10,6 +10,8 @@ export const ACHIEVEMENT_DEFINITIONS = [
   {
     id: 'first-spark',
     icon: 'fire',
+    category: 'burn',
+    rarity: 'common',
     title: '第一把火',
     titleEn: 'First spark',
     description: '完成第一次 Token 消耗。',
@@ -19,8 +21,23 @@ export const ACHIEVEMENT_DEFINITIONS = [
     valueType: 'runs',
   },
   {
+    id: 'ten-thousand',
+    icon: 'rocket',
+    category: 'burn',
+    rarity: 'common',
+    title: '预热完成',
+    titleEn: 'Warmed up',
+    description: '累计消耗 10K Token。',
+    descriptionEn: 'Burn 10K tokens in total.',
+    metric: 'totalTokens',
+    target: 10_000,
+    valueType: 'tokens',
+  },
+  {
     id: 'hundred-thousand',
     icon: 'tokens',
+    category: 'burn',
+    rarity: 'rare',
     title: '杯水车薪',
     titleEn: 'A drop in the furnace',
     description: '累计消耗 100K Token。',
@@ -32,6 +49,8 @@ export const ACHIEVEMENT_DEFINITIONS = [
   {
     id: 'million',
     icon: 'lightning',
+    category: 'burn',
+    rarity: 'rare',
     title: '毫无意义',
     titleEn: 'Pointless by design',
     description: '累计消耗 1M Token。',
@@ -41,8 +60,88 @@ export const ACHIEVEMENT_DEFINITIONS = [
     valueType: 'tokens',
   },
   {
+    id: 'ten-million',
+    icon: 'tokens',
+    category: 'burn',
+    rarity: 'epic',
+    title: '恒星燃料',
+    titleEn: 'Stellar fuel',
+    description: '累计消耗 10M Token。',
+    descriptionEn: 'Burn 10M tokens in total.',
+    metric: 'totalTokens',
+    target: 10_000_000,
+    valueType: 'tokens',
+  },
+  {
+    id: 'fifty-million',
+    icon: 'lightning',
+    category: 'burn',
+    rarity: 'epic',
+    title: '超新星余晖',
+    titleEn: 'Supernova afterglow',
+    description: '累计消耗 50M Token。',
+    descriptionEn: 'Burn 50M tokens in total.',
+    metric: 'totalTokens',
+    target: 50_000_000,
+    valueType: 'tokens',
+  },
+  {
+    id: 'two-hundred-million',
+    icon: 'orbit',
+    category: 'burn',
+    rarity: 'legendary',
+    title: '奇点边缘',
+    titleEn: 'Edge of singularity',
+    description: '累计消耗 200M Token。',
+    descriptionEn: 'Burn 200M tokens in total.',
+    metric: 'totalTokens',
+    target: 200_000_000,
+    valueType: 'tokens',
+  },
+  {
+    id: 'black-hole',
+    icon: 'black-hole',
+    category: 'burn',
+    rarity: 'legendary',
+    title: '黑洞引力',
+    titleEn: 'Black hole gravity',
+    description: '累计消耗 1B Token。',
+    descriptionEn: 'Burn 1B tokens in total.',
+    metric: 'totalTokens',
+    target: 1_000_000_000,
+    valueType: 'tokens',
+  },
+  {
+    id: 'ten-runs',
+    icon: 'repeat',
+    category: 'runs',
+    rarity: 'common',
+    title: '再来一轮',
+    titleEn: 'One more run',
+    description: '累计完成 10 次运行。',
+    descriptionEn: 'Complete 10 burn runs.',
+    metric: 'runCount',
+    target: 10,
+    valueType: 'runs',
+  },
+  {
+    id: 'hundred-runs',
+    icon: 'stack',
+    category: 'runs',
+    rarity: 'epic',
+    title: '百次开炉',
+    titleEn: 'Century furnace',
+    description: '累计完成 100 次运行。',
+    descriptionEn: 'Complete 100 burn runs.',
+    metric: 'runCount',
+    target: 100,
+    valueType: 'runs',
+  },
+  {
     id: 'hundred-rounds',
     icon: 'rounds',
+    category: 'runs',
+    rarity: 'rare',
     title: '这也能算生产力？',
     titleEn: 'Does this count as productivity?',
     description: '累计完成 100 轮请求。',
@@ -52,8 +151,23 @@ export const ACHIEVEMENT_DEFINITIONS = [
     valueType: 'rounds',
   },
   {
+    id: 'thousand-rounds',
+    icon: 'repeat',
+    category: 'runs',
+    rarity: 'epic',
+    title: '请求风暴',
+    titleEn: 'Request storm',
+    description: '累计完成 1K 轮请求。',
+    descriptionEn: 'Complete 1K request rounds.',
+    metric: 'totalRounds',
+    target: 1_000,
+    valueType: 'rounds',
+  },
+  {
     id: 'model-sampler',
     icon: 'models',
+    category: 'explore',
+    rarity: 'rare',
     title: '雨露均沾',
     titleEn: 'Model sampler',
     description: '使用 4 个不同模型完成消耗。',
@@ -63,8 +177,23 @@ export const ACHIEVEMENT_DEFINITIONS = [
     valueType: 'models',
   },
   {
+    id: 'model-collector',
+    icon: 'models',
+    category: 'explore',
+    rarity: 'epic',
+    title: '模型收藏家',
+    titleEn: 'Model collector',
+    description: '使用 10 个不同模型完成消耗。',
+    descriptionEn: 'Complete burns with 10 different models.',
+    metric: 'modelCount',
+    target: 10,
+    valueType: 'models',
+  },
+  {
     id: 'cross-platform',
     icon: 'platforms',
+    category: 'explore',
+    rarity: 'rare',
     title: '跨平台燃烧',
     titleEn: 'Cross-platform burner',
     description: '同时使用直连 API 和消费版订阅。',
@@ -74,8 +203,62 @@ export const ACHIEVEMENT_DEFINITIONS = [
     valueType: 'modes',
   },
   {
+    id: 'provider-tour',
+    icon: 'globe',
+    category: 'explore',
+    rarity: 'epic',
+    title: '供应商巡礼',
+    titleEn: 'Provider grand tour',
+    description: '使用 4 个不同 Provider 完成消耗。',
+    descriptionEn: 'Complete burns through 4 different providers.',
+    metric: 'providerCount',
+    target: 4,
+    valueType: 'providers',
+  },
+  {
+    id: 'one-dollar-total',
+    icon: 'cost',
+    category: 'cost',
+    rarity: 'common',
+    title: '小额试烧',
+    titleEn: 'Pocket change',
+    description: '累计估算消费达到 $1。',
+    descriptionEn: 'Reach an estimated $1 in total spend.',
+    metric: 'totalCost',
+    target: 1,
+    valueType: 'money',
+  },
+  {
+    id: 'ten-dollar-total',
+    icon: 'coins',
+    category: 'cost',
+    rarity: 'rare',
+    title: '预算蒸发',
+    titleEn: 'Budget evaporated',
+    description: '累计估算消费达到 $10。',
+    descriptionEn: 'Reach an estimated $10 in total spend.',
+    metric: 'totalCost',
+    target: 10,
+    valueType: 'money',
+  },
+  {
+    id: 'hundred-dollar-total',
+    icon: 'coins',
+    category: 'cost',
+    rarity: 'legendary',
+    title: '钞能力',
+    titleEn: 'Financial superpower',
+    description: '累计估算消费达到 $100。',
+    descriptionEn: 'Reach an estimated $100 in total spend.',
+    metric: 'totalCost',
+    target: 100,
+    valueType: 'money',
+  },
+  {
     id: 'ten-dollar-run',
     icon: 'cost',
+    category: 'cost',
+    rarity: 'epic',
     title: '财务自由体验卡',
     titleEn: 'Financial freedom trial',
     description: '单次运行估算消费达到 $10。',
@@ -85,8 +268,23 @@ export const ACHIEVEMENT_DEFINITIONS = [
     valueType: 'money',
   },
   {
+    id: 'three-day-streak',
+    icon: 'streak',
+    category: 'streak',
+    rarity: 'common',
+    title: '火苗不断',
+    titleEn: 'Keep the flame',
+    description: '连续 3 天留下 Token 记录。',
+    descriptionEn: 'Record token activity for 3 days in a row.',
+    metric: 'longestStreak',
+    target: 3,
+    valueType: 'days',
+  },
+  {
     id: 'seven-day-streak',
     icon: 'streak',
+    category: 'streak',
+    rarity: 'rare',
     title: '余火未熄',
     titleEn: 'Still burning',
     description: '连续 7 天留下 Token 记录。',
@@ -96,15 +294,30 @@ export const ACHIEVEMENT_DEFINITIONS = [
     valueType: 'days',
   },
   {
-    id: 'black-hole',
-    icon: 'black-hole',
-    title: '黑洞引力',
-    titleEn: 'Black hole gravity',
-    description: '累计消耗 1B Token。',
-    descriptionEn: 'Burn 1B tokens in total.',
-    metric: 'totalTokens',
-    target: 1_000_000_000,
-    valueType: 'tokens',
+    id: 'thirty-day-streak',
+    icon: 'calendar',
+    category: 'streak',
+    rarity: 'legendary',
+    title: '月度常驻',
+    titleEn: 'Month-long resident',
+    description: '连续 30 天留下 Token 记录。',
+    descriptionEn: 'Record token activity for 30 days in a row.',
+    metric: 'longestStreak',
+    target: 30,
+    valueType: 'days',
+  },
+  {
+    id: 'thirty-active-days',
+    icon: 'calendar',
+    category: 'streak',
+    rarity: 'epic',
+    title: '余烬日历',
+    titleEn: 'Ember calendar',
+    description: '在 30 个不同日期留下消耗记录。',
+    descriptionEn: 'Record token activity on 30 different days.',
+    metric: 'activeDays',
+    target: 30,
+    valueType: 'days',
   },
 ]
 
@@ -146,15 +359,20 @@ function streakMetrics(runs) {
   let longest = 0
   let current = 0
   let previous = 0
-  let sevenDayReachedAt = 0
+  const reachedAt = {}
+  const streakDefinitions = ACHIEVEMENT_DEFINITIONS.filter(
+    (definition) => definition.metric === 'longestStreak',
+  )
 
   for (const timestamp of dates) {
     current = previous && Math.round((timestamp - previous) / DAY_MS) === 1 ? current + 1 : 1
     longest = Math.max(longest, current)
-    if (!sevenDayReachedAt && current >= 7) sevenDayReachedAt = timestamp
+    for (const definition of streakDefinitions) {
+      if (!reachedAt[definition.id] && current >= definition.target) reachedAt[definition.id] = timestamp
+    }
     previous = timestamp
   }
-  return { longest, sevenDayReachedAt }
+  return { dates, longest, reachedAt }
 }
 
 export function evaluateAchievements(runs) {
@@ -162,15 +380,19 @@ export function evaluateAchievements(runs) {
     .filter((run) => run && typeof run === 'object')
     .sort((left, right) => runTimestamp(left) - runTimestamp(right))
   const models = new Set()
+  const providers = new Set()
   const providerModes = new Set()
   const reachedAt = {}
   const metrics = {
     runCount: 0,
     totalTokens: 0,
     totalRounds: 0,
+    totalCost: 0,
     modelCount: 0,
+    providerCount: 0,
     providerModeCount: 0,
     maxRunCost: 0,
+    activeDays: 0,
     longestStreak: 0,
   }
 
@@ -178,19 +400,30 @@ export function evaluateAchievements(runs) {
     metrics.runCount += 1
     metrics.totalTokens += Math.max(0, Number(run.tokens) || 0)
     metrics.totalRounds += Math.max(0, Number(run.rounds) || 0)
+    metrics.totalCost += Math.max(0, Number(run.cost) || 0)
     metrics.maxRunCost = Math.max(metrics.maxRunCost, Math.max(0, Number(run.cost) || 0))
     const model = String(run.model || '').trim().toLowerCase()
     if (model) models.add(model)
     const provider = String(run.provider || '').trim()
-    if (provider) providerModes.add(SUBSCRIPTION_PROVIDERS.has(provider) ? 'subscription' : 'direct')
+    if (provider) {
+      providers.add(provider)
+      providerModes.add(SUBSCRIPTION_PROVIDERS.has(provider) ? 'subscription' : 'direct')
+    }
     metrics.modelCount = models.size
+    metrics.providerCount = providers.size
     metrics.providerModeCount = providerModes.size
     updateReachedAt(reachedAt, metrics, runTimestamp(run) || Date.now())
   }
 
   const streak = streakMetrics(orderedRuns)
+  metrics.activeDays = streak.dates.length
   metrics.longestStreak = streak.longest
-  if (streak.sevenDayReachedAt) reachedAt['seven-day-streak'] = streak.sevenDayReachedAt
+  Object.assign(reachedAt, streak.reachedAt)
+  for (const definition of ACHIEVEMENT_DEFINITIONS.filter((item) => item.metric === 'activeDays')) {
+    if (metrics.activeDays >= definition.target) {
+      reachedAt[definition.id] = streak.dates[definition.target - 1] || streak.dates.at(-1) || 0
+    }
+  }
 
   const items = ACHIEVEMENT_DEFINITIONS.map((definition) => {
     const current = metrics[definition.metric]

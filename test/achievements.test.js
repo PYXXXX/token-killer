@@ -1,6 +1,19 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { evaluateAchievements, mergeCloudAchievements } from '../src/lib/achievements.js'
+import {
+  ACHIEVEMENT_DEFINITIONS,
+  evaluateAchievements,
+  mergeCloudAchievements,
+} from '../src/lib/achievements.js'
+
+test('achievement collection exposes 24 categorized rarity-aware goals', () => {
+  assert.equal(ACHIEVEMENT_DEFINITIONS.length, 24)
+  assert.deepEqual(
+    new Set(ACHIEVEMENT_DEFINITIONS.map((item) => item.category)),
+    new Set(['burn', 'runs', 'explore', 'cost', 'streak']),
+  )
+  assert.equal(ACHIEVEMENT_DEFINITIONS.every((item) => item.rarity), true)
+})
 
 test('achievements unlock from aggregate run data without storing extra state', () => {
   const achievements = evaluateAchievements([
@@ -28,7 +41,10 @@ test('achievements unlock from aggregate run data without storing extra state', 
 
   assert.equal(achievements.metrics.totalTokens, 110_000)
   assert.equal(achievements.metrics.totalRounds, 100)
+  assert.equal(achievements.metrics.totalCost, 12)
+  assert.equal(achievements.metrics.providerCount, 2)
   assert.equal(achievements.metrics.providerModeCount, 2)
+  assert.equal(achievements.metrics.activeDays, 2)
   assert.equal(achievements.items.find((item) => item.id === 'first-spark').unlocked, true)
   assert.equal(achievements.items.find((item) => item.id === 'hundred-thousand').unlocked, true)
   assert.equal(achievements.items.find((item) => item.id === 'hundred-rounds').unlocked, true)
@@ -66,7 +82,7 @@ test('model and black-hole achievements keep exact thresholds', () => {
 
   assert.equal(achievements.items.find((item) => item.id === 'model-sampler').unlocked, true)
   assert.equal(achievements.items.find((item) => item.id === 'black-hole').unlocked, true)
-  assert.equal(achievements.unlockedCount, 5)
+  assert.equal(achievements.unlockedCount, 10)
 })
 
 test('cloud achievements merge with local progress without losing offline unlocks', () => {
@@ -90,5 +106,5 @@ test('cloud achievements merge with local progress without losing offline unlock
   assert.equal(merged.items.find((item) => item.id === 'first-spark').unlocked, true)
   assert.equal(merged.items.find((item) => item.id === 'hundred-thousand').cloud, true)
   assert.equal(merged.metrics.totalTokens, 120_000)
-  assert.equal(merged.unlockedCount, 2)
+  assert.equal(merged.unlockedCount, 3)
 })
