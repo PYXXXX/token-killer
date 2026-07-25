@@ -217,3 +217,48 @@ export function evaluateAchievements(runs) {
   }
 }
 
+export function mergeCloudAchievements(localResult, cloudState) {
+  if (!cloudState || typeof cloudState !== 'object') return localResult
+  const cloudUnlocked = new Map(
+    (Array.isArray(cloudState.unlocked) ? cloudState.unlocked : [])
+      .filter((item) => item && typeof item.id === 'string')
+      .map((item) => [item.id, Math.max(0, Number(item.unlockedAt) || 0)]),
+  )
+  const cloudMetrics = cloudState.metrics && typeof cloudState.metrics === 'object'
+    ? cloudState.metrics
+    : {}
+  const metrics = Object.fromEntries(
+    Object.entries(localResult.metrics).map(([key, value]) => [
+      key,
+      Math.max(Number(value) || 0, Number(cloudMetrics[key]) || 0),
+    ]),
+  )
+  const items = ACHIEVEMENT_DEFINITIONS.map((definition) => {
+    const local = localResult.items.find((item) => item.id === definition.id)
+    const cloudUnlockedAt = cloudUnlocked.get(definition.id) || 0
+    const current = metrics[definition.metric] || 0
+    const unlocked = Boolean(local?.unlocked || cloudUnlockedAt || current >= definition.target)
+    const timestamps = [local?.unlockedAt, cloudUnlockedAt].filter((value) => Number(value) > 0)
+    return {
+      ...definition,
+      current,
+      unlocked,
+      cloud: Boolean(cloudUnlockedAt),
+      unlockedAt: timestamps.length ? Math.min(...timestamps) : 0,
+      progress: Math.min(100, Math.max(0, (current / definition.target) * 100)),
+    }
+  })
+  const unlockedItems = items
+    .filter((item) => item.unlocked)
+    .sort((left, right) => right.unlockedAt - left.unlockedAt)
+
+  return {
+    items,
+    unlockedItems,
+    latest: unlockedItems[0] || null,
+    unlockedCount: unlockedItems.length,
+    totalCount: items.length,
+    metrics,
+    cloudSynced: true,
+  }
+}

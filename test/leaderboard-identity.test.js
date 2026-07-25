@@ -31,6 +31,7 @@ class IdentityDatabase {
   prepare(sql) {
     const database = this
     return {
+      sql,
       values: [],
       bind(...values) {
         this.values = values
@@ -44,6 +45,24 @@ class IdentityDatabase {
         if (sql.includes('FROM leaderboard_runs')) return null
         throw new Error(`Unexpected first query: ${sql}`)
       },
+      async all() {
+        if (sql.includes('COUNT(*) AS run_count')) {
+          return {
+            success: true,
+            results: [{
+              run_count: 0,
+              total_tokens: 0,
+              total_rounds: 0,
+              model_count: 0,
+              max_run_cost_micros: 0,
+            }],
+          }
+        }
+        if (sql.includes('FROM leaderboard_runs') || sql.includes('FROM profile_achievements')) {
+          return { success: true, results: [] }
+        }
+        throw new Error(`Unexpected all query: ${sql}`)
+      },
       async run() {
         if (!sql.includes('INSERT OR IGNORE INTO leaderboard_profiles')) {
           throw new Error(`Unexpected run query: ${sql}`)
@@ -56,6 +75,10 @@ class IdentityDatabase {
         return { success: true }
       },
     }
+  }
+
+  async batch(statements) {
+    return Promise.all(statements.map((statement) => statement.all()))
   }
 }
 

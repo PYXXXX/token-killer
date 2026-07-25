@@ -140,7 +140,7 @@ npm run db:migrate:remote
 
 Wrangler 会询问是否应用 `migrations/` 中的迁移，确认后继续。
 
-排行榜编号由 D1 唯一签发。已经部署过旧版本时也需要重新执行这条命令，以应用 `0005_leaderboard_profiles.sql`；迁移会尽量保留现有编号，撞号的参与者会在下次连接时由服务端重新分配。
+排行榜编号由 D1 唯一签发。已经部署过旧版本时也需要重新执行这条命令，以应用 `0005_leaderboard_profiles.sql` 和 `0006_profile_achievements.sql`。前者会尽量保留现有编号，撞号的参与者会在下次连接时由服务端重新分配；后者用于保存根据已核验排行榜运行计算出的成就。
 
 ### 6. 配置 Gemini OAuth（可选）
 

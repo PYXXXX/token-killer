@@ -9,32 +9,40 @@ import {
   Crown,
   Database,
   DownloadSimple,
-  Eye,
-  EyeSlash,
   Fire,
   Gauge,
   Info,
   Key,
   Lightning,
   ListChecks,
-  LockSimple,
   Moon,
   MapPin,
-  Pause,
-  Play,
   ShieldCheck,
   SlidersHorizontal,
-  Stop,
   Star,
   Sun,
   Trash,
   Translate,
-  Trophy,
   XLogo,
 } from '@phosphor-icons/react'
 import { I18nProvider, Localized } from './Localized.jsx'
 import { useLocale } from './locale-context.js'
-import { callProvider, guardedPromptEstimate, loadProviderModels } from './lib/api.js'
+import { Field, Metric, NavButton, RankIcon, Segmented } from './components/ui.jsx'
+import { BurnPanel } from './features/burn/BurnPanel.jsx'
+import { useBurnSession } from './features/burn/useBurnSession.js'
+import { ProviderFields } from './features/settings/ProviderFields.jsx'
+import {
+  ActivityMatrix,
+  CompactActivityMatrix,
+} from './features/stats/ActivityMatrix.jsx'
+import {
+  AchievementGallery,
+  AchievementMark,
+} from './features/achievements/AchievementGallery.jsx'
+import { achievementDescription, achievementTitle } from './features/achievements/achievementCopy.js'
+import { AchievementUnlockToast } from './features/achievements/AchievementUnlockToast.jsx'
+import { subscriptionPlanLabel } from './lib/accountLabels.js'
+import { loadProviderModels } from './lib/api.js'
 import {
   checkSubscriptionService,
   deleteSubscriptionAccount,
@@ -48,56 +56,43 @@ import {
   startGeminiLogin,
   startGrokLogin,
 } from './lib/accounts.js'
-import { subscriptionPlanLabel } from './lib/accountLabels.js'
 import {
   ACCOUNT_PROVIDER_TO_SETTINGS,
   API_FORMATS,
   loadOpenRouterModels,
   PROMPT_PRESETS,
   PROVIDERS,
-  createPricingSnapshot,
-  estimateUsageCost,
   resolvePrice,
   SUBSCRIPTION_MODELS,
   SUBSCRIPTION_PROVIDER_IDS,
 } from './lib/catalog.js'
-import { formatDuration, formatMoney, formatTokens, percent, todayKey } from './lib/format.js'
+import { formatDuration, formatMoney, formatTokens, todayKey } from './lib/format.js'
 import { checkGeoService, defaultGeoEndpoint, deriveGeoEndpoint } from './lib/geo.js'
-import { createLeaderboardSession, getLeaderboard, getLeaderboardProfile, submitLeaderboardRun } from './lib/leaderboard.js'
+import { getLeaderboard, getLeaderboardProfile } from './lib/leaderboard.js'
 import { RANK_TIERS, rankForTokens } from './lib/ranks.js'
 import { EMPTY_MANUAL_REGION, countryOptions, sanitizeManualRegion } from './lib/regions.js'
 import { loadCityOptions, loadRegionOptions } from './lib/regionCatalog.js'
 import {
   clearLocalData,
   clearProviderBlocklist,
-  clearRunCheckpoint,
   exportLocalData,
   getParticipantLabel,
   hasOnboarded,
-  isProviderBlocked,
   markOnboarded,
   readProviderBlocklist,
   recoverInterruptedRun,
   readSettings,
   unblockProvider,
-  writeRunCheckpoint,
   writeRuns,
   writeSettings,
 } from './lib/storage.js'
 import { exportShareCard } from './lib/share.js'
 import { clearLocalVault, deleteEncryptedSecret, getEncryptedSecret, saveEncryptedSecret } from './lib/localVault.js'
-import { providerBlockedMessage } from './lib/providerGuard.js'
 import { localeTag, resolveLocale, t, translateText } from './lib/i18n.js'
-import { activityLevel, buildTokenActivity } from './lib/activity.js'
-import { evaluateAchievements } from './lib/achievements.js'
+import { buildTokenActivity } from './lib/activity.js'
+import { evaluateAchievements, mergeCloudAchievements } from './lib/achievements.js'
 
 const isSubscriptionProvider = (provider) => SUBSCRIPTION_PROVIDER_IDS.includes(provider)
-const accountProviderForSettings = (provider) => ({
-  chatgpt: 'openai',
-  claude_subscription: 'claude',
-  gemini_subscription: 'gemini',
-  grok_subscription: 'grok',
-}[provider] || '')
 const apiKeySecretId = (provider) => `api-key:${provider}`
 const EMPTY_SUBSCRIPTION_PROVIDERS = { openai: false, claude: false, gemini: false, grok: false }
 const CONFIGURED_GEO_URL = String(
@@ -171,611 +166,6 @@ const DEFAULT_SETTINGS = {
   maxDurationMinutes: 0,
   pauseWhenHidden: true,
   keepAwake: false,
-}
-
-const INITIAL_SESSION = {
-  status: 'idle',
-  tokens: 0,
-  input: 0,
-  output: 0,
-  cost: 0,
-  rounds: 0,
-  verifiedRounds: 0,
-  startedAt: 0,
-  endedAt: 0,
-  currentOutput: '',
-  logs: [],
-  message: '等待启动',
-}
-
-function NavButton({ active, icon: Icon, label, onClick }) {
-  const NavIcon = Icon
-  return (
-    <button className={`nav-button ${active ? 'active' : ''}`} type="button" onClick={onClick}>
-      <NavIcon size={20} weight={active ? 'fill' : 'regular'} />
-      <span>{label}</span>
-    </button>
-  )
-}
-
-function Metric({ label, value, detail, icon: Icon }) {
-  return (
-    <div className="metric">
-      <div className="metric-label">
-        <span>{label}</span>
-        {Icon ? <Icon size={18} /> : null}
-      </div>
-      <strong>{value}</strong>
-      {detail ? <small>{detail}</small> : null}
-    </div>
-  )
-}
-
-function RankIcon({ tier, eager = false, decorative = false }) {
-  return (
-    <img
-      src={`${import.meta.env.BASE_URL}ranks-c/${tier.id}.png`}
-      alt={decorative ? '' : `${tier.name}段位徽章`}
-      aria-hidden={decorative || undefined}
-      loading={eager ? 'eager' : 'lazy'}
-      decoding="async"
-    />
-  )
-}
-
-function Field({ label, hint, children, className = '' }) {
-  return (
-    <label className={`field ${className}`}>
-      <span className="field-label">{label}</span>
-      {children}
-      {hint ? <small>{hint}</small> : null}
-    </label>
-  )
-}
-
-function Segmented({ value, options, onChange, label }) {
-  return (
-    <div className="segmented" role="group" aria-label={label}>
-      {options.map((option) => (
-        <button
-          type="button"
-          key={option.value}
-          className={value === option.value ? 'active' : ''}
-          onClick={() => onChange(option.value)}
-        >
-          {option.label}
-        </button>
-      ))}
-    </div>
-  )
-}
-
-function ProviderFields({
-  settings,
-  updateSettings,
-  models,
-  availableModels = [],
-  modelListState = { status: 'idle', count: 0, error: '' },
-  refreshAvailableModels,
-  accounts = [],
-  compact = false,
-}) {
-  const [showKey, setShowKey] = useState(false)
-  const subscription = isSubscriptionProvider(settings.provider)
-  const switchFormat = (apiFormat) => {
-    const preset = API_FORMATS[apiFormat]
-    if (!preset) return
-    updateSettings({
-      provider: 'custom',
-      endpoint: preset.endpoint,
-      model: preset.model,
-      apiFormat,
-      authMode: preset.authMode,
-      tokenParam: 'auto',
-    })
-  }
-  const selectableModels = availableModels.length ? availableModels : models
-  const listId = compact ? 'onboarding-model-catalog' : 'model-catalog'
-  const modelHint = modelListState.status === 'ready'
-    ? `已获取 ${modelListState.count} 个可用模型；未列出的模型 ID 仍可直接填写。价格按 OpenRouter 目录匹配。`
-    : modelListState.status === 'error'
-      ? modelListState.error
-      : '点击刷新获取可用模型，也可以直接填写模型 ID；价格按 OpenRouter 目录匹配。'
-
-  return (
-    <Localized>
-      <div className={`form-grid ${compact ? 'compact' : ''}`}>
-      <Field label="请求格式" className="span-2">
-        <select value={subscription ? 'subscription' : settings.apiFormat} onChange={(event) => switchFormat(event.target.value)}>
-          {subscription ? <option value="subscription" disabled>当前使用消费版订阅账号</option> : null}
-          {Object.entries(API_FORMATS).map(([id, format]) => (
-            <option value={id} key={id}>{format.label}</option>
-          ))}
-        </select>
-      </Field>
-      {subscription ? (
-        <>
-          <Field label="已连接账号">
-            <select value={settings.selectedAccountId} onChange={(event) => updateSettings({ selectedAccountId: event.target.value })}>
-              <option value="">请选择订阅账号</option>
-              {accounts.filter((account) => account.provider === accountProviderForSettings(settings.provider)).map((account) => (
-                <option value={account.id} key={account.id}>
-                  {account.displayName} {account.planType ? `· ${subscriptionPlanLabel(account.provider, account.planType)}` : ''}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="订阅模型">
-            <input type="text" list="subscription-model-catalog" value={settings.model} spellCheck="false" onChange={(event) => updateSettings({ model: event.target.value })} />
-            <datalist id="subscription-model-catalog">
-              {(SUBSCRIPTION_MODELS[settings.provider] || []).map((model) => <option value={model} key={model} />)}
-            </datalist>
-          </Field>
-        </>
-      ) : (
-        <>
-          <Field label="请求地址" className="span-2">
-            <input
-              type="url"
-              value={settings.endpoint}
-              spellCheck="false"
-              onChange={(event) => updateSettings({ endpoint: event.target.value })}
-              placeholder="https://api.example.com/v1/chat/completions"
-            />
-          </Field>
-          <Field label="模型 ID">
-            <div className="model-picker">
-              <input
-                type="text"
-                list={listId}
-                value={settings.model}
-                spellCheck="false"
-                onChange={(event) => updateSettings({ model: event.target.value })}
-                placeholder="provider/model-name"
-              />
-              <button type="button" disabled={modelListState.status === 'loading'} onClick={refreshAvailableModels}>
-                <ArrowClockwise className={modelListState.status === 'loading' ? 'spin' : ''} size={16} />
-                <span>{modelListState.status === 'loading' ? '获取中' : '刷新'}</span>
-              </button>
-            </div>
-            <small className={modelListState.status === 'error' ? 'field-error' : ''}>{modelHint}</small>
-            <datalist id={listId}>
-              {selectableModels.slice(0, 1000).map((model) => (
-                <option value={model.id} key={model.id}>{model.name}</option>
-              ))}
-            </datalist>
-          </Field>
-          <Field label="API Key" hint="加密保存，下次访问自动填充。">
-            <div className="input-with-action">
-              <input
-                type={showKey ? 'text' : 'password'}
-                value={settings.apiKey}
-                autoComplete="off"
-                spellCheck="false"
-                onChange={(event) => updateSettings({ apiKey: event.target.value })}
-                placeholder="sk-..."
-              />
-              <button type="button" aria-label={showKey ? '隐藏 API Key' : '显示 API Key'} onClick={() => setShowKey(!showKey)}>
-                {showKey ? <EyeSlash size={18} /> : <Eye size={18} />}
-              </button>
-            </div>
-          </Field>
-        </>
-      )}
-      </div>
-    </Localized>
-  )
-}
-
-function BurnPanel({ settings, updateSettings, catalogState, session, onStart, onPause, onResume, onStop, price, accounts }) {
-  const locale = useLocale()
-  const preset = PROMPT_PRESETS.find((item) => item.id === settings.promptId) || PROMPT_PRESETS[0]
-  const target = settings.targetMode === 'tokens' ? Number(settings.targetTokens) : Number(settings.targetAmount)
-  const consumed = settings.targetMode === 'tokens' ? session.tokens : session.cost
-  const progress = percent(consumed, target)
-  const presetPrompt = locale === 'en' ? preset.promptEn : preset.prompt
-  const prompt = settings.promptId === 'custom' ? settings.customPrompt : presetPrompt
-  const isSubscription = isSubscriptionProvider(settings.provider)
-  const priceSummary = t(
-    locale,
-    `${price.source}。费用按当前模型的 OpenRouter 参考价与实际 usage 估算${isSubscription ? '，订阅账号同样计入费用统计与排行榜' : ''}。${catalogState === 'loading' ? ' 正在刷新模型目录。' : ''}`,
-    `${translateText(locale, price.source)}. Cost is estimated from actual usage using the current model's OpenRouter reference price${isSubscription ? '; subscription accounts are included in cost statistics and leaderboards too' : ''}.${catalogState === 'loading' ? ' Refreshing the model catalog.' : ''}`,
-  )
-  const promptReserve = guardedPromptEstimate(settings.systemPrompt, prompt)
-  const active = ['running', 'pausing', 'paused', 'stopping'].includes(session.status)
-  const selectedAccount = accounts.find((account) => account.id === settings.selectedAccountId)
-  const canStart = Boolean(
-    settings.model &&
-      target > 0 &&
-      prompt &&
-      (isSubscription
-        ? selectedAccount
-        : settings.endpoint && (settings.apiKey || settings.authMode === 'none')),
-  )
-
-  return (
-    <Localized>
-      <div className="panel-page burn-page">
-      <header className="page-header">
-        <div>
-          <span className="page-kicker">消耗控制台</span>
-          <h1>消耗你的 Token</h1>
-          <p>设定目标，选择任务，然后开始消耗。</p>
-        </div>
-        <div className="provider-chip">
-          <ShieldCheck size={19} />
-          <span>{isSubscription ? PROVIDERS[settings.provider]?.label : API_FORMATS[settings.apiFormat]?.label || '兼容 API'}</span>
-          <small>{isSubscription ? selectedAccount?.displayName || '等待连接账号' : settings.authMode === 'none' ? '无需密钥' : settings.apiKey ? '已配置密钥' : '等待密钥'}</small>
-        </div>
-      </header>
-
-      <div className="burn-layout">
-        <section className="control-column">
-          <div className="section-block target-block">
-            <div className="section-heading">
-              <div>
-                <h2>消耗目标</h2>
-                <p>接近目标时自动缩小单轮输出预算。</p>
-              </div>
-              <Segmented
-                label="消耗目标类型"
-                value={settings.targetMode}
-                options={isSubscription
-                  ? [{ value: 'tokens', label: '定 Token' }]
-                  : [
-                      { value: 'tokens', label: '定 Token' },
-                      { value: 'money', label: '定金额' },
-                    ]}
-                onChange={(targetMode) => updateSettings({ targetMode })}
-              />
-            </div>
-
-            <div className="target-input-row">
-              <div className="target-input-wrap">
-                <span>{settings.targetMode === 'tokens' ? 'TOKENS' : 'USD'}</span>
-                <input
-                  aria-label={settings.targetMode === 'tokens' ? '目标 Token 数' : '目标金额'}
-                  type="number"
-                  min="1"
-                  step={settings.targetMode === 'tokens' ? '1000' : '0.1'}
-                  value={settings.targetMode === 'tokens' ? settings.targetTokens : settings.targetAmount}
-                  onChange={(event) =>
-                    updateSettings(
-                      settings.targetMode === 'tokens'
-                        ? { targetTokens: event.target.value }
-                        : { targetAmount: event.target.value },
-                    )
-                  }
-                />
-              </div>
-              <div className="target-meta">
-                <div>
-                  <span>当前价格</span>
-                  <strong>{price.output ? `${formatMoney(price.output * 1_000_000, 2)} / M 输出` : '未匹配'}</strong>
-                </div>
-                <div>
-                  <span>输入预留</span>
-                  <strong>约 {formatTokens(promptReserve)} / 轮</strong>
-                </div>
-              </div>
-            </div>
-            <div className="price-source">
-              <Info size={16} />
-              <span>{priceSummary}</span>
-            </div>
-          </div>
-
-          <div className="section-block prompt-block">
-            <div className="section-heading">
-              <div>
-                <h2>请求内容</h2>
-                <p>选择持续输出型任务，或完全自定义。</p>
-              </div>
-            </div>
-            <div className="prompt-options">
-              {PROMPT_PRESETS.map((item) => (
-                <button
-                  type="button"
-                  className={`prompt-option ${settings.promptId === item.id ? 'active' : ''}`}
-                  key={item.id}
-                  onClick={() => updateSettings({ promptId: item.id })}
-                >
-                  <span className="prompt-check">{settings.promptId === item.id ? <Check size={15} weight="bold" /> : null}</span>
-                  <span>
-                    <strong>{item.name}</strong>
-                    <small>{item.description}</small>
-                  </span>
-                  <em>{item.tag}</em>
-                </button>
-              ))}
-            </div>
-            {settings.promptId === 'custom' ? (
-              <Field label="自定义 Prompt" className="custom-prompt-field">
-                <textarea
-                  rows="6"
-                  value={settings.customPrompt}
-                  onChange={(event) => updateSettings({ customPrompt: event.target.value })}
-                  placeholder="输入希望模型持续执行的任务..."
-                />
-              </Field>
-            ) : (
-              <div className="prompt-preview">
-                <span>将发送</span>
-                <p>{presetPrompt}</p>
-              </div>
-            )}
-          </div>
-        </section>
-
-        <aside className="run-column">
-          <div className={`run-console status-${session.status}`}>
-            <div className="run-topline">
-              <span className="run-status">
-                {active ? <span className="live-mark" /> : null}
-                {session.message}
-              </span>
-              <span>{session.rounds} 轮</span>
-            </div>
-
-            <div className="progress-ring" style={{ '--progress': `${progress * 3.6}deg` }}>
-              <div>
-                <strong>{progress.toFixed(progress < 10 ? 1 : 0)}%</strong>
-                <span>{settings.targetMode === 'tokens' ? formatTokens(session.tokens) : formatMoney(session.cost)}</span>
-              </div>
-            </div>
-
-            <div className="run-stats">
-              <div>
-                <span>输入</span>
-                <strong>{formatTokens(session.input)}</strong>
-              </div>
-              <div>
-                <span>输出</span>
-                <strong>{formatTokens(session.output)}</strong>
-              </div>
-              <div>
-                <span>成本</span>
-                <strong>{formatMoney(session.cost)}</strong>
-              </div>
-              <div>
-                <span>核验</span>
-                <strong>{session.rounds ? `${session.verifiedRounds}/${session.rounds}` : '0/0'}</strong>
-              </div>
-            </div>
-
-            {session.logs.length ? (
-              <div className="run-log" aria-live="polite">
-                {session.logs.slice(-4).map((log) => (
-                  <div key={log.id}>
-                    <span>{log.label}</span>
-                    <strong>{log.value}</strong>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="run-empty">
-                <Gauge size={26} />
-                <p>启动后，这里显示每轮的真实 usage 与预算变化。</p>
-              </div>
-            )}
-
-            {active ? (
-              <div className="run-actions">
-                {session.status === 'paused' ? (
-                  <button className="start-button" type="button" onClick={onResume}>
-                    <Play size={19} weight="fill" />
-                    继续
-                  </button>
-                ) : (
-                  <button className="pause-button" type="button" disabled={session.status !== 'running'} onClick={onPause}>
-                    <Pause size={19} weight="fill" />
-                    {session.status === 'pausing' ? '等待本轮结束' : '安全暂停'}
-                  </button>
-                )}
-                <button className="stop-button" type="button" onClick={onStop}>
-                  <Stop size={19} weight="fill" />
-                  立即停止
-                </button>
-              </div>
-            ) : (
-              <button className="start-button" type="button" disabled={!canStart} onClick={onStart}>
-                <Play size={19} weight="fill" />
-                开始消耗
-              </button>
-            )}
-            {!canStart && !active ? <small className="button-hint">{isSubscription ? '请先在配置中连接并选择对应的订阅账号' : '请补齐 API、模型、密钥和请求内容'}</small> : null}
-          </div>
-
-          <div className="guard-note">
-            <ShieldCheck size={22} />
-            <div>
-              <strong>软上限保护</strong>
-              <p>按回执记账，逐轮收缩。供应商分词与计费发生在远端，无法保证最后 1 token 的绝对命中。</p>
-            </div>
-          </div>
-        </aside>
-      </div>
-      </div>
-    </Localized>
-  )
-}
-
-function ActivityMatrix({ activity, mode, locale }) {
-  const tokensLabel = (tokens) => `${formatTokens(tokens)} Token`
-
-  if (mode === 'week') {
-    return (
-      <div className="activity-scroll">
-        <div className="activity-week-view" role="img" aria-label={t(locale, '过去 53 周 Token 活动', 'Token activity over the past 53 weeks')}>
-          <div className="activity-week-cells">
-            {activity.weeks.map((week) => (
-              <i
-                className={`activity-cell level-${activityLevel(week.tokens, activity.weeklyPeak)}`}
-                key={week.key}
-                title={`${week.label}: ${tokensLabel(week.tokens)}`}
-                aria-hidden="true"
-              />
-            ))}
-          </div>
-          <div className="activity-month-labels" style={{ '--activity-columns': activity.weeks.length }}>
-            {activity.monthLabels.map((month) => (
-              <span key={`${month.index}-${month.label}`} style={{ gridColumn: month.index + 1 }}>{month.label}</span>
-            ))}
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  if (mode === 'total') {
-    return (
-      <div className="activity-month-view" role="img" aria-label={t(locale, '过去 12 个月累计 Token 活动', 'Monthly token activity over the past 12 months')}>
-        {activity.months.map((month) => (
-          <div className="activity-month" key={month.key} title={`${month.label}: ${tokensLabel(month.tokens)}`}>
-            <i className={`activity-cell level-${activityLevel(month.tokens, activity.monthlyPeak)}`} aria-hidden="true" />
-            <span>{month.label}</span>
-            <strong>{formatTokens(month.tokens)}</strong>
-          </div>
-        ))}
-      </div>
-    )
-  }
-
-  return (
-    <div className="activity-scroll">
-      <div className="activity-year-view" role="img" aria-label={t(locale, '过去一年每日 Token 活动', 'Daily token activity over the past year')}>
-        <div className="activity-day-grid">
-          {activity.weeks.map((week) => (
-            <div className="activity-week-column" key={week.key}>
-              {week.days.map((day) => (
-                <i
-                  className={`activity-cell level-${day.isFuture ? 0 : activityLevel(day.tokens, activity.dailyPeak)} ${day.isFuture ? 'is-future' : ''}`}
-                  key={day.key}
-                  title={day.isFuture ? '' : `${day.label}: ${tokensLabel(day.tokens)}`}
-                  aria-hidden="true"
-                />
-              ))}
-            </div>
-          ))}
-        </div>
-        <div className="activity-month-labels" style={{ '--activity-columns': activity.weeks.length }}>
-          {activity.monthLabels.map((month) => (
-            <span key={`${month.index}-${month.label}`} style={{ gridColumn: month.index + 1 }}>{month.label}</span>
-          ))}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function CompactActivityMatrix({ activity }) {
-  const weeks = activity.weeks.slice(-14)
-  return (
-    <div className="share-activity-grid" aria-hidden="true">
-      {weeks.map((week) => (
-        <div key={week.key}>
-          {week.days.map((day) => (
-            <i
-              className={`activity-cell level-${day.isFuture ? 0 : activityLevel(day.tokens, activity.dailyPeak)} ${day.isFuture ? 'is-future' : ''}`}
-              key={day.key}
-            />
-          ))}
-        </div>
-      ))}
-    </div>
-  )
-}
-
-const ACHIEVEMENT_ICONS = {
-  fire: Fire,
-  tokens: Database,
-  lightning: Lightning,
-  rounds: ListChecks,
-  models: ChartBar,
-  platforms: SlidersHorizontal,
-  cost: Gauge,
-  streak: Star,
-  'black-hole': Crown,
-}
-
-function AchievementMark({ achievement, size = 22 }) {
-  const Icon = ACHIEVEMENT_ICONS[achievement.icon] || Trophy
-  return <Icon size={size} weight={achievement.unlocked ? 'fill' : 'regular'} />
-}
-
-function achievementTitle(achievement, locale) {
-  return locale === 'en' ? achievement.titleEn : achievement.title
-}
-
-function achievementDescription(achievement, locale) {
-  return locale === 'en' ? achievement.descriptionEn : achievement.description
-}
-
-function achievementProgressLabel(achievement, locale) {
-  const current = Math.min(achievement.current, achievement.target)
-  if (achievement.valueType === 'tokens') {
-    return `${formatTokens(current)} / ${formatTokens(achievement.target)} Token`
-  }
-  if (achievement.valueType === 'money') {
-    return `${formatMoney(current)} / ${formatMoney(achievement.target)}`
-  }
-  const suffix = {
-    runs: locale === 'en' ? 'runs' : '次运行',
-    rounds: locale === 'en' ? 'rounds' : '轮',
-    models: locale === 'en' ? 'models' : '个模型',
-    modes: locale === 'en' ? 'modes' : '种模式',
-    days: locale === 'en' ? 'days' : '天',
-  }[achievement.valueType] || ''
-  return `${formatTokens(current)} / ${formatTokens(achievement.target)} ${suffix}`
-}
-
-function AchievementGallery({ achievements, locale, selectedId, onSelect }) {
-  return (
-    <section className="achievement-section section-block">
-      <div className="achievement-heading">
-        <div>
-          <h2>{t(locale, '燃烧成就', 'Burn achievements')}</h2>
-          <p>{t(locale, '每一枚都由本机运行记录自动解锁。', 'Each one unlocks from your browser run history.')}</p>
-        </div>
-        <strong>{achievements.unlockedCount} / {achievements.totalCount}</strong>
-      </div>
-      <div className="achievement-track">
-        {achievements.items.map((achievement) => {
-          const selected = achievement.id === selectedId
-          return (
-            <button
-              className={`achievement-card ${achievement.unlocked ? 'unlocked' : 'locked'} ${selected ? 'selected' : ''}`}
-              key={achievement.id}
-              type="button"
-              disabled={!achievement.unlocked}
-              aria-pressed={achievement.unlocked ? selected : undefined}
-              onClick={() => onSelect(achievement.id)}
-            >
-              <span className="achievement-mark">
-                {achievement.unlocked
-                  ? <AchievementMark achievement={achievement} />
-                  : <LockSimple size={20} weight="bold" />}
-              </span>
-              <span className="achievement-copy">
-                <strong>{achievementTitle(achievement, locale)}</strong>
-                <small>{achievementDescription(achievement, locale)}</small>
-              </span>
-              <span className="achievement-progress">
-                {achievement.unlocked
-                  ? t(locale, '已解锁', 'Unlocked')
-                  : achievementProgressLabel(achievement, locale)}
-              </span>
-            </button>
-          )
-        })}
-      </div>
-      <p className="achievement-note">
-        {achievements.unlockedCount
-          ? t(locale, '选择已解锁成就，可生成专属分享战报。', 'Select an unlocked achievement to create its share story.')
-          : t(locale, '完成第一次消耗后，这里会亮起第一枚成就。', 'Complete your first burn to light up the first achievement.')}
-      </p>
-    </section>
-  )
 }
 
 function ShareStoryCard({
@@ -861,7 +251,7 @@ function ShareStoryCard({
   )
 }
 
-function StatsPanel({ runs, settings, leaderboardVersion, participantLabel }) {
+function StatsPanel({ runs, settings, leaderboardVersion, participantLabel, focusAchievementId = '' }) {
   const locale = useLocale()
   const formatDayCount = (value) => (
     locale.startsWith('en')
@@ -888,6 +278,11 @@ function StatsPanel({ runs, settings, leaderboardVersion, participantLabel }) {
     error: '',
   })
   const [rankProfile, setRankProfile] = useState({ status: 'loading', data: null, error: '' })
+  useEffect(() => {
+    if (!focusAchievementId) return
+    setSelectedAchievementId(focusAchievementId)
+    setShareStory('achievement')
+  }, [focusAchievementId])
   const today = todayKey()
   const todayRuns = runs.filter((run) => run.date === today)
   const todayTokens = todayRuns.reduce((sum, run) => sum + run.tokens, 0)
@@ -898,9 +293,7 @@ function StatsPanel({ runs, settings, leaderboardVersion, participantLabel }) {
     () => buildTokenActivity(runs, { locale: localeTag(locale) }),
     [runs, locale],
   )
-  const achievements = useMemo(() => evaluateAchievements(runs), [runs])
-  const selectedAchievement = achievements.unlockedItems.find((item) => item.id === selectedAchievementId)
-    || achievements.latest
+  const localAchievements = useMemo(() => evaluateAchievements(runs), [runs])
   const days = Array.from({ length: 7 }, (_, index) => {
     const date = new Date()
     date.setDate(date.getDate() - (6 - index))
@@ -992,6 +385,12 @@ function StatsPanel({ runs, settings, leaderboardVersion, participantLabel }) {
   }, [settings.leaderboardApiUrl, geoApiUrl, manualRegion, boardRefresh, leaderboardVersion, locale])
 
   const profileData = rankProfile.status === 'ready' ? rankProfile.data : null
+  const achievements = useMemo(
+    () => mergeCloudAchievements(localAchievements, profileData?.achievements),
+    [localAchievements, profileData?.achievements],
+  )
+  const selectedAchievement = achievements.unlockedItems.find((item) => item.id === selectedAchievementId)
+    || achievements.latest
   const currentTier = profileData?.tier || rankForTokens(totalTokens)
   const rankTokenTotal = profileData?.totalTokens ?? totalTokens
   const currentTierIndex = Math.max(0, RANK_TIERS.findIndex((tier) => tier.id === currentTier.id))
@@ -1007,7 +406,12 @@ function StatsPanel({ runs, settings, leaderboardVersion, participantLabel }) {
       ? 100
       : Math.min(100, Math.max(0, (rankTokenTotal / Math.max(1, viewedTier.min)) * 100))
   const scopeOptions = globalBoard.context?.scopes || profileData?.context?.scopes || [{ id: 'global', label: '全球' }]
-  const rankScopes = profileData?.ranks || scopeOptions.map((scope) => ({ ...scope, rank: null, tokens: 0 }))
+  const rankScopes = profileData?.ranks || scopeOptions.map((scope) => ({
+    ...scope,
+    scope: scope.scope || scope.id,
+    rank: null,
+    tokens: 0,
+  }))
   const globalRank = rankScopes.find((item) => item.scope === 'global')?.rank || null
   const rankDirectory = profileData?.context?.directory || globalBoard.context?.directory || []
   const rankGeoSource = profileData?.context?.source || globalBoard.context?.source || 'edge'
@@ -2337,20 +1741,21 @@ export default function App() {
   const [settings, setSettings] = useState(() => readSettings(DEFAULT_SETTINGS))
   const locale = resolveLocale(settings.locale)
   const [runs, setRuns] = useState(() => recoverInterruptedRun())
+  const knownAchievementIdsRef = useRef(new Set(
+    evaluateAchievements(runs).unlockedItems.map((item) => item.id),
+  ))
+  const [achievementNotice, setAchievementNotice] = useState(null)
+  const [achievementFocusId, setAchievementFocusId] = useState('')
   const [models, setModels] = useState([])
   const [catalogState, setCatalogState] = useState('loading')
   const [catalogUpdatedAt, setCatalogUpdatedAt] = useState(0)
   const [availableModels, setAvailableModels] = useState([])
   const [modelListState, setModelListState] = useState({ status: 'idle', count: 0, endpoint: '', error: '' })
-  const [session, setSession] = useState(INITIAL_SESSION)
   const [leaderboardVersion, setLeaderboardVersion] = useState(0)
   const [accountsState, setAccountsState] = useState({ status: 'idle', accounts: [], error: '' })
   const [providerBlocklist, setProviderBlocklist] = useState(() => readProviderBlocklist())
   const [showOnboarding, setShowOnboarding] = useState(() => !hasOnboarded())
   const [participantLabel, setParticipantLabel] = useState(() => getParticipantLabel())
-  const abortRef = useRef(null)
-  const pauseRef = useRef({ requested: false, resume: null, reason: '' })
-  const wakeLockRef = useRef(null)
   const modelListAbortRef = useRef(null)
   const apiKeyStateRef = useRef({ provider: '', ready: false, request: 0 })
   const apiKeySaveTimerRef = useRef(null)
@@ -2394,6 +1799,30 @@ export default function App() {
     }
   }, [settings.model, settings.inputPricePerMillion, settings.outputPricePerMillion, models])
   const isDark = settings.theme === 'dark' || (settings.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+  const saveRun = useCallback((data) => {
+    setRuns((current) => {
+      const nextRuns = [data, ...current.filter((run) => run.id !== data.id)].slice(0, 500)
+      writeRuns(nextRuns)
+      return nextRuns
+    })
+  }, [])
+  const {
+    session,
+    startRun,
+    requestPause,
+    resumeRun,
+    stopRun,
+    resetSession,
+    acquireWakeLock,
+  } = useBurnSession({
+    settings,
+    price,
+    catalogUpdatedAt,
+    locale,
+    saveRun,
+    onProviderBlocklistChange: setProviderBlocklist,
+    onLeaderboardPublished: () => setLeaderboardVersion((value) => value + 1),
+  })
 
   const refreshCatalog = async () => {
     setCatalogState('loading')
@@ -2501,311 +1930,14 @@ export default function App() {
     else root.setAttribute('data-theme', settings.theme)
   }, [settings, locale])
 
-  const saveRun = (data) => {
-    const nextRuns = [data, ...runs.filter((run) => run.id !== data.id)].slice(0, 500)
-    writeRuns(nextRuns)
-    setRuns(nextRuns)
-  }
-
-  const requestPause = useCallback((reason = '已请求暂停，等待本轮结束') => {
-    if (!abortRef.current || pauseRef.current.requested) return
-    pauseRef.current.requested = true
-    pauseRef.current.reason = reason
-    setSession((current) => current.status === 'running'
-      ? { ...current, status: 'pausing', message: reason }
-      : current)
-  }, [])
-
-  const resumeRun = useCallback(() => {
-    pauseRef.current.requested = false
-    pauseRef.current.reason = ''
-    const resume = pauseRef.current.resume
-    pauseRef.current.resume = null
-    setSession((current) => current.status === 'paused'
-      ? { ...current, status: 'running', message: `正在准备第 ${current.rounds + 1} 轮` }
-      : current)
-    resume?.()
-  }, [])
-
-  const releaseWakeLock = useCallback(async () => {
-    const lock = wakeLockRef.current
-    wakeLockRef.current = null
-    if (!lock || lock.released) return
-    try {
-      await lock.release()
-    } catch {
-      // Browsers may release the lock themselves when the page becomes hidden.
-    }
-  }, [])
-
-  const acquireWakeLock = useCallback(async () => {
-    if (!settings.keepAwake || document.visibilityState !== 'visible' || !navigator.wakeLock || wakeLockRef.current) return
-    try {
-      const lock = await navigator.wakeLock.request('screen')
-      wakeLockRef.current = lock
-      lock.addEventListener('release', () => {
-        if (wakeLockRef.current === lock) wakeLockRef.current = null
-      }, { once: true })
-    } catch {
-      // Wake Lock is optional; the run remains usable when the browser denies it.
-    }
-  }, [settings.keepAwake])
-
   useEffect(() => {
-    const handleVisibility = () => {
-      if (document.visibilityState === 'hidden') {
-        releaseWakeLock()
-        if (settings.pauseWhenHidden) requestPause('页面已转入后台，本轮结束后暂停')
-      } else if (abortRef.current && !pauseRef.current.requested) {
-        acquireWakeLock()
-      }
-    }
-    document.addEventListener('visibilitychange', handleVisibility)
-    return () => document.removeEventListener('visibilitychange', handleVisibility)
-  }, [acquireWakeLock, releaseWakeLock, requestPause, settings.pauseWhenHidden])
-
-  useEffect(() => () => {
-    abortRef.current?.abort()
-    pauseRef.current.resume?.()
-    releaseWakeLock()
-  }, [releaseWakeLock])
-
-  const startRun = async () => {
-    if (['running', 'pausing', 'paused', 'stopping'].includes(session.status)) return
-    if (isProviderBlocked(settings)) {
-      setProviderBlocklist(readProviderBlocklist())
-      setSession({ ...INITIAL_SESSION, status: 'blocked', endedAt: Date.now(), message: providerBlockedMessage() })
-      return
-    }
-    const preset = PROMPT_PRESETS.find((item) => item.id === settings.promptId) || PROMPT_PRESETS[0]
-    const prompt = settings.promptId === 'custom'
-      ? settings.customPrompt
-      : locale === 'en'
-        ? preset.promptEn
-        : preset.prompt
-    const target = settings.targetMode === 'tokens' ? Number(settings.targetTokens) : Number(settings.targetAmount)
-    const batchSize = Math.max(1, Number(settings.batchSize) || 1)
-    const maxRounds = Math.max(0, Number(settings.maxRounds) || 0)
-    const maxDurationMs = Math.max(0, Number(settings.maxDurationMinutes) || 0) * 60_000
-    const startedAt = Date.now()
-    const runPrice = { ...price }
-    const runId = crypto.randomUUID()
-    const runPricingSnapshot = createPricingSnapshot(settings.model, runPrice, catalogUpdatedAt, startedAt)
-    const controller = new AbortController()
-    abortRef.current = controller
-    pauseRef.current = { requested: false, resume: null, reason: '' }
-
-    let totals = { tokens: 0, input: 0, output: 0, cost: 0, rounds: 0, verifiedRounds: 0 }
-    let calibratedInput = 0
-    let finalStatus = 'completed'
-    let finalMessage = '目标已完成'
-    let latestLogs = []
-    let leaderboardSession = null
-
-    setSession({ ...INITIAL_SESSION, status: 'running', startedAt, message: '正在准备第 1 轮' })
-    acquireWakeLock()
-
-    const waitIfPaused = async () => {
-      if (!pauseRef.current.requested) return
-      await releaseWakeLock()
-      setSession((current) => ({
-        ...current,
-        status: 'paused',
-        message: '已安全暂停',
-      }))
-      await new Promise((resolve) => {
-        pauseRef.current.resume = resolve
-      })
-      pauseRef.current.resume = null
-      if (controller.signal.aborted) throw new DOMException('Run stopped', 'AbortError')
-    }
-
-    try {
-      if (settings.publishToLeaderboard) {
-        try {
-          leaderboardSession = await createLeaderboardSession(settings.leaderboardApiUrl, settings)
-          latestLogs = [{ id: `board-${Date.now()}`, label: '排行榜', value: '运行票据已签发' }]
-        } catch (error) {
-          latestLogs = [{ id: `board-${Date.now()}`, label: '排行榜未连接', value: error.message }]
-        }
-      }
-
-      for (let iteration = 0; ; iteration += 1) {
-        if (controller.signal.aborted) throw new DOMException('Run stopped', 'AbortError')
-        await waitIfPaused()
-        if (maxRounds && totals.rounds >= maxRounds) {
-          finalStatus = 'limited'
-          finalMessage = `已达到 ${maxRounds} 轮运行限制`
-          break
-        }
-        if (maxDurationMs && Date.now() - startedAt >= maxDurationMs) {
-          finalStatus = 'limited'
-          finalMessage = `已达到 ${formatDuration(maxDurationMs)} 运行限制`
-          break
-        }
-        const inputReserve = calibratedInput ? Math.ceil(calibratedInput * 1.05 + 8) : guardedPromptEstimate(settings.systemPrompt, prompt)
-        let maxOutput
-
-        if (settings.targetMode === 'tokens') {
-          const remaining = target - totals.tokens
-          maxOutput = Math.min(batchSize, Math.floor(remaining - inputReserve))
-          if (remaining <= 0) break
-          if (maxOutput < 1) {
-            finalStatus = 'guarded'
-            finalMessage = `已触发上限保护，剩余 ${formatTokens(remaining)} token 小于下一轮安全预留`
-            break
-          }
-        } else {
-          if (!runPrice.output || (!runPrice.input && !runPrice.output)) throw new Error('金额模式需要有效的模型输入与输出价格')
-          const remaining = target - totals.cost
-          const inputCostReserve = inputReserve * runPrice.input
-          maxOutput = Math.min(batchSize, Math.floor((remaining - inputCostReserve) / runPrice.output))
-          if (remaining <= 0) break
-          if (maxOutput < 1) {
-            finalStatus = 'guarded'
-            finalMessage = `已触发金额保护，余额 ${formatMoney(remaining)} 不足以安全发起下一轮`
-            break
-          }
-        }
-
-        setSession((current) => ({ ...current, message: `第 ${iteration + 1} 轮请求中，输出上限 ${formatTokens(maxOutput)}` }))
-        let outputPreview = ''
-        let lastPaint = 0
-        const result = await callProvider(settings, prompt, maxOutput, controller.signal, (delta) => {
-          outputPreview = `${outputPreview}${delta}`.slice(-1200)
-          const now = Date.now()
-          if (now - lastPaint > 120) {
-            lastPaint = now
-            setSession((current) => ({ ...current, currentOutput: outputPreview }))
-          }
-        })
-
-        calibratedInput = result.usage.input || calibratedInput
-        const roundCost = estimateUsageCost(result.usage, runPrice)
-        totals = {
-          tokens: totals.tokens + result.usage.total,
-          input: totals.input + result.usage.input,
-          output: totals.output + result.usage.output,
-          cost: totals.cost + roundCost,
-          rounds: totals.rounds + 1,
-          verifiedRounds: totals.verifiedRounds + (result.usage.verified ? 1 : 0),
-        }
-        latestLogs = [
-          ...latestLogs,
-          {
-            id: `${iteration}-${Date.now()}`,
-            label: `第 ${iteration + 1} 轮${result.usage.verified ? '' : '（估算）'}`,
-            value: `+${formatTokens(result.usage.total)} / ${formatMoney(roundCost)}`,
-          },
-        ].slice(-20)
-
-        writeRunCheckpoint({
-          id: runId,
-          date: todayKey(new Date(startedAt)),
-          startedAt,
-          provider: settings.provider,
-          model: settings.model,
-          promptId: settings.promptId,
-          ...totals,
-          pricing: runPricingSnapshot,
-        })
-
-        setSession((current) => ({
-          ...current,
-          ...totals,
-          logs: latestLogs,
-          currentOutput: result.text.slice(-1200),
-          message: `第 ${iteration + 1} 轮完成，已回收 usage`,
-        }))
-
-        if (settings.targetMode === 'tokens' && totals.tokens >= target) {
-          if (totals.tokens > target) {
-            finalStatus = 'exceeded'
-            finalMessage = `供应商实际分词超出软上限 ${formatTokens(totals.tokens - target)} token`
-          }
-          break
-        }
-        if (settings.targetMode === 'money' && totals.cost >= target) {
-          if (totals.cost > target) {
-            finalStatus = 'exceeded'
-            finalMessage = `实际估算超出目标 ${formatMoney(totals.cost - target)}`
-          }
-          break
-        }
-
-        await waitIfPaused()
-      }
-    } catch (error) {
-      if (error.name === 'AbortError') {
-        finalStatus = 'stopped'
-        finalMessage = '已停止。在途请求可能已被供应商计费，但未返回最终 usage'
-      } else if (error.providerBlock) {
-        finalStatus = 'blocked'
-        finalMessage = providerBlockedMessage()
-        setProviderBlocklist(readProviderBlocklist())
-      } else if (error.outcomeUnknown) {
-        finalStatus = 'unknown'
-        finalMessage = error.message
-      } else {
-        finalStatus = 'error'
-        finalMessage = error.message
-      }
-    } finally {
-      abortRef.current = null
-      pauseRef.current.resume?.()
-      pauseRef.current = { requested: false, resume: null, reason: '' }
-      releaseWakeLock()
-      const endedAt = Date.now()
-      setSession((current) => ({ ...current, ...totals, status: finalStatus, endedAt, message: finalMessage, logs: latestLogs }))
-      if (totals.rounds > 0) {
-        const run = {
-          id: runId,
-          date: todayKey(new Date(startedAt)),
-          startedAt,
-          duration: endedAt - startedAt,
-          provider: settings.provider,
-          model: settings.model,
-          promptId: settings.promptId,
-          tokens: totals.tokens,
-          input: totals.input,
-          output: totals.output,
-          cost: totals.cost,
-          rounds: totals.rounds,
-          verified: totals.rounds === totals.verifiedRounds,
-          status: finalStatus,
-          pricing: runPricingSnapshot,
-        }
-        saveRun(run)
-        clearRunCheckpoint()
-        if (leaderboardSession && run.verified) {
-          submitLeaderboardRun(settings.leaderboardApiUrl, leaderboardSession, run)
-            .then((result) => {
-              if (!result) return
-              setLeaderboardVersion((value) => value + 1)
-              setSession((current) => ({
-                ...current,
-                logs: [...current.logs, { id: `board-${Date.now()}`, label: '排行榜', value: '已发布' }].slice(-20),
-              }))
-            })
-            .catch((error) => {
-              setSession((current) => ({
-                ...current,
-                logs: [...current.logs, { id: `board-${Date.now()}`, label: '排行榜发布失败', value: error.message }].slice(-20),
-              }))
-            })
-        }
-      } else {
-        clearRunCheckpoint()
-      }
-    }
-  }
-
-  const stopRun = () => {
-    setSession((current) => ({ ...current, status: 'stopping', message: '正在中止当前请求' }))
-    abortRef.current?.abort()
-    pauseRef.current.resume?.()
-    pauseRef.current.resume = null
-  }
+    const result = evaluateAchievements(runs)
+    const newlyUnlocked = result.unlockedItems.filter(
+      (item) => !knownAchievementIdsRef.current.has(item.id),
+    )
+    knownAchievementIdsRef.current = new Set(result.unlockedItems.map((item) => item.id))
+    if (newlyUnlocked.length) setAchievementNotice(newlyUnlocked.at(-1))
+  }, [runs])
 
   const handleUnblockProvider = (key) => {
     unblockProvider(key)
@@ -2837,10 +1969,13 @@ export default function App() {
       return
     }
     setRuns([])
+    knownAchievementIdsRef.current = new Set()
+    setAchievementNotice(null)
+    setAchievementFocusId('')
     apiKeyStateRef.current = { provider: DEFAULT_SETTINGS.provider, ready: true, request: resetRequest }
     setSettings(DEFAULT_SETTINGS)
     setParticipantLabel(getParticipantLabel())
-    setSession(INITIAL_SESSION)
+    resetSession()
     setAccountsState({ status: 'idle', accounts: [], error: '' })
     setShowOnboarding(true)
   }
@@ -2893,7 +2028,15 @@ export default function App() {
             accounts={accountsState.accounts}
           />
         ) : null}
-        {activePanel === 'stats' ? <StatsPanel runs={runs} settings={settings} leaderboardVersion={leaderboardVersion} participantLabel={participantLabel} /> : null}
+        {activePanel === 'stats' ? (
+          <StatsPanel
+            runs={runs}
+            settings={settings}
+            leaderboardVersion={leaderboardVersion}
+            participantLabel={participantLabel}
+            focusAchievementId={achievementFocusId}
+          />
+        ) : null}
         {activePanel === 'settings' ? (
           <SettingsPanel
             settings={settings}
@@ -2936,6 +2079,28 @@ export default function App() {
           onClose={() => setShowOnboarding(false)}
         />
       ) : null}
+      <AchievementUnlockToast
+        achievement={achievementNotice}
+        locale={locale}
+        onClose={() => setAchievementNotice(null)}
+        onOpen={() => {
+          setAchievementFocusId(achievementNotice?.id || '')
+          setActivePanel('stats')
+          setAchievementNotice(null)
+        }}
+        onShare={() => {
+          if (!achievementNotice) return
+          const title = achievementTitle(achievementNotice, locale)
+          const totalTokens = runs.reduce((sum, run) => sum + Number(run.tokens || 0), 0)
+          const deploymentUrl = new URL('.', window.location.href).href.replace(/\/$/, '')
+          const text = t(
+            locale,
+            `我在 Token Killer 解锁了“${title}”，累计消耗 ${formatTokens(totalTokens)} Token。你也来点亮自己的成就吧：${deploymentUrl}`,
+            `I unlocked "${title}" in Token Killer after burning ${formatTokens(totalTokens)} tokens. Light up yours at ${deploymentUrl}.`,
+          )
+          window.open(`https://x.com/intent/post?text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer')
+        }}
+      />
         </div>
       </Localized>
     </I18nProvider>

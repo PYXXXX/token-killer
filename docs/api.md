@@ -20,11 +20,13 @@ The frontend accepts either a service origin such as `https://burn.example.com` 
 | Method | Route | Purpose |
 | --- | --- | --- |
 | `GET`, `POST` | `/api/leaderboard` | Read one leaderboard page. The frontend uses `POST` so it can include an installation ID and region assertion without placing them in a query string. |
-| `POST` | `/api/leaderboard/profile` | Resolve the current participant number, rank, tier, and regional context. |
+| `POST` | `/api/leaderboard/profile` | Resolve the current participant number, rank, tier, regional context, and persisted achievements. |
 | `POST` | `/api/leaderboard/sessions` | Create a signed submission session before a burn run starts. |
 | `POST` | `/api/leaderboard/runs` | Submit a completed, verified usage receipt to the leaderboard. |
 
 Only leaderboard-safe aggregate data is accepted. API keys, OAuth credentials, prompts, model responses, and the provider blocklist are never leaderboard fields.
+
+Achievements are derived by the leaderboard service from accepted usage receipts. The browser cannot submit an achievement directly. The profile response includes unlocked achievement IDs, unlock timestamps, and aggregate progress metrics; it never includes request content. When the service is unavailable, the frontend can still show provisional progress from local run history and merges it with the persisted profile after reconnecting.
 
 ## Subscription OAuth
 

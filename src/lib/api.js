@@ -9,15 +9,14 @@ import {
 } from './providerGuard.js'
 import { blockProvider, isProviderBlocked } from './storage.js'
 import { API_ROUTES, apiServiceUrl } from './apiRoutes.js'
+import { buildHeaders, buildRequest, directFormat } from './providers/requestAdapters.js'
+import {
+  extractResponseText,
+  normalizeUsage,
+  readProviderStream,
+} from './providers/responseAdapters.js'
 
-function parseExtraHeaders(raw) {
-  if (!raw?.trim()) return {}
-  const parsed = JSON.parse(raw)
-  if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
-    throw new Error('自定义 Header 必须是 JSON 对象')
-  }
-  return Object.fromEntries(Object.entries(parsed).map(([key, value]) => [key, String(value)]))
-}
+export { buildRequest } from './providers/requestAdapters.js'
 
 function extractError(payload, fallback) {
   return payload?.error?.message || payload?.message || payload?.error?.type || fallback
@@ -89,34 +88,6 @@ function createInferenceDeadline(externalSignal, timeoutSeconds) {
       externalSignal?.removeEventListener('abort', forwardAbort)
     },
   }
-}
-
-function directFormat(settings) {
-  if (settings.apiFormat) return settings.apiFormat
-  if (settings.provider === 'anthropic') return 'anthropic'
-  if (settings.provider === 'openai') return 'openai-responses'
-  return 'openai'
-}
-
-function buildHeaders(settings, format, includeContentType = true) {
-  const headers = {
-    ...(includeContentType ? { 'Content-Type': 'application/json' } : {}),
-    ...parseExtraHeaders(settings.extraHeaders),
-  }
-
-  if (settings.authMode === 'x-api-key') {
-    if (settings.apiKey) headers['x-api-key'] = settings.apiKey
-  } else if (settings.authMode === 'x-goog-api-key') {
-    if (settings.apiKey) headers['x-goog-api-key'] = settings.apiKey
-  } else if (settings.authMode !== 'none' && settings.apiKey) {
-    headers.Authorization = `Bearer ${settings.apiKey}`
-  }
-
-  if (format === 'anthropic') {
-    headers['anthropic-version'] = settings.anthropicVersion || '2023-06-01'
-    headers['anthropic-dangerous-direct-browser-access'] = 'true'
-  }
-  return headers
 }
 
 function rememberProviderBlock(settings, error) {
@@ -241,187 +212,6 @@ export function guardedPromptEstimate(systemPrompt, prompt) {
   return Math.ceil(estimatePromptTokens(systemPrompt, prompt) * 1.18 + 16)
 }
 
-function normalizeUsage(usage, fallbackInput = 0, fallbackOutput = 0) {
-  if (!usage) {
-    return {
-      input: fallbackInput,
-      output: fallbackOutput,
-      total: fallbackInput + fallbackOutput,
-      reasoning: 0,
-      cached: 0,
-      verified: false,
-      cost: 0,
-    }
-  }
-
-  const rawInput = Number(usage.prompt_tokens ?? usage.input_tokens ?? usage.promptTokenCount ?? 0)
-  const output = Number(usage.completion_tokens ?? usage.output_tokens ?? usage.candidatesTokenCount ?? 0)
-  const cached = Number(
-    usage.prompt_tokens_details?.cached_tokens ?? usage.cache_read_input_tokens ?? usage.prompt_cache_hit_tokens ?? 0,
-  )
-  const cacheCreation = Number(usage.cache_creation_input_tokens ?? 0)
-  const hasSeparateAnthropicCache = usage.cache_read_input_tokens != null || usage.cache_creation_input_tokens != null
-  const input = hasSeparateAnthropicCache ? rawInput + cached + cacheCreation : rawInput
-  const reasoning = Number(
-    usage.completion_tokens_details?.reasoning_tokens ??
-      usage.output_tokens_details?.reasoning_tokens ??
-      usage.output_tokens_details?.thinking_tokens ??
-      usage.thoughtsTokenCount ??
-      0,
-  )
-  const total = Number(usage.total_tokens ?? usage.totalTokenCount ?? input + output + reasoning)
-
-  return { input, output, total, reasoning, cached, verified: true, cost: Number(usage.cost ?? 0) }
-}
-
-export function buildRequest(settings, prompt, maxOutput) {
-  const format = directFormat(settings)
-  const headers = buildHeaders(settings, format)
-  const markedPrompt = appendRequestMarker(prompt)
-
-  if (format === 'anthropic') {
-    return {
-      format,
-      headers,
-      body: {
-        model: settings.model,
-        system: settings.systemPrompt || undefined,
-        messages: [{ role: 'user', content: markedPrompt }],
-        max_tokens: maxOutput,
-        stream: settings.stream,
-      },
-    }
-  }
-
-  if (format === 'gemini') {
-    const method = settings.stream ? 'streamGenerateContent' : 'generateContent'
-    const model = encodeURIComponent(settings.model)
-    const sourceEndpoint = String(settings.endpoint || '')
-    let endpoint = sourceEndpoint.replace(/\{model\}|%7Bmodel%7D/gi, model)
-    if (/:(?:stream)?generateContent(?:\?.*)?$/i.test(endpoint)) {
-      endpoint = endpoint.replace(/:(?:stream)?generateContent/i, `:${method}`)
-    } else if (/\/models\/?(?:\?.*)?$/i.test(endpoint)) {
-      endpoint = endpoint.replace(/\/models\/?/i, `/models/${model}:${method}`)
-    } else if (!/\/models\/[^/]+:/i.test(endpoint)) {
-      endpoint = `${endpoint.replace(/\/$/, '')}/models/${model}:${method}`
-    }
-    const url = new URL(endpoint)
-    if (settings.stream) url.searchParams.set('alt', 'sse')
-    return {
-      format,
-      endpoint: url.toString(),
-      headers,
-      body: {
-        systemInstruction: settings.systemPrompt
-          ? { parts: [{ text: settings.systemPrompt }] }
-          : undefined,
-        contents: [{ role: 'user', parts: [{ text: markedPrompt }] }],
-        generationConfig: { maxOutputTokens: maxOutput },
-      },
-    }
-  }
-
-  if (format === 'openai-responses') {
-    return {
-      format,
-      headers,
-      body: {
-        model: settings.model,
-        instructions: settings.systemPrompt || undefined,
-        input: [
-          {
-            role: 'user',
-            content: [{ type: 'input_text', text: markedPrompt }],
-          },
-        ],
-        max_output_tokens: maxOutput,
-        stream: settings.stream,
-        store: false,
-      },
-    }
-  }
-
-  if (format === 'openai-completions') {
-    return {
-      format,
-      headers,
-      body: {
-        model: settings.model,
-        prompt: settings.systemPrompt ? `${settings.systemPrompt}\n\n${markedPrompt}` : markedPrompt,
-        max_tokens: maxOutput,
-        stream: false,
-      },
-    }
-  }
-
-  const tokenField =
-    settings.tokenParam === 'auto'
-      ? settings.provider === 'openai' || /\/\/api\.openai\.com\//i.test(settings.endpoint)
-        ? 'max_completion_tokens'
-        : 'max_tokens'
-      : settings.tokenParam
-  const body = {
-    model: settings.model,
-    messages: [
-      ...(settings.systemPrompt ? [{ role: 'system', content: settings.systemPrompt }] : []),
-      { role: 'user', content: markedPrompt },
-    ],
-    stream: settings.stream,
-    [tokenField]: maxOutput,
-  }
-  if (settings.stream) body.stream_options = { include_usage: true }
-  if (/\/\/api\.deepseek\.com\//i.test(settings.endpoint) && settings.deepThinking) {
-    body.thinking = { type: 'enabled' }
-    body.reasoning_effort = settings.reasoningEffort || 'high'
-  }
-  return { format, headers, body }
-}
-
-async function readResponsesStream(response, inputEstimate, onChunk) {
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
-  let text = ''
-  let usage = null
-
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split('\n')
-    buffer = lines.pop() || ''
-    for (const rawLine of lines) {
-      const line = rawLine.trim()
-      if (!line.startsWith('data:')) continue
-      const data = line.slice(5).trim()
-      if (!data || data === '[DONE]') continue
-      let event
-      try {
-        event = JSON.parse(data)
-      } catch {
-        continue
-      }
-      if (event.type === 'error' || event.error || event.response?.error) {
-        throw classifyProviderError({
-          payload: event.response || event,
-          status: response.status,
-          fallback: 'Responses 请求失败',
-        })
-      }
-      const delta = event.type === 'response.output_text.delta' ? event.delta || '' : ''
-      if (delta) {
-        text += delta
-        onChunk?.(delta)
-      }
-      if (event.response?.usage) usage = event.response.usage
-      if (event.usage) usage = event.usage
-    }
-  }
-
-  const outputEstimate = Math.ceil(Array.from(text).length / 2.6)
-  return { text, usage: normalizeUsage(usage, inputEstimate, outputEstimate) }
-}
-
 async function resolveSubscriptionAccount(settings) {
   if (!settings.selectedAccountId) throw new Error('请先连接并选择一个消费版订阅账号')
   const account = await getLocalAccount(settings.selectedAccountId)
@@ -509,163 +299,18 @@ async function callSubscription(settings, prompt, maxOutput, signal, onChunk) {
   const inputEstimate = estimatePromptTokens(settings.systemPrompt, prompt)
   let result
   try {
-    result = account.provider === 'claude'
-      ? await readAnthropicStream(response, inputEstimate, onChunk)
+    const responseFormat = account.provider === 'claude'
+      ? 'anthropic'
       : account.provider === 'gemini'
-        ? await readGeminiStream(response, inputEstimate, onChunk)
-        : await readResponsesStream(response, inputEstimate, onChunk)
+        ? 'gemini'
+        : 'openai-responses'
+    result = await readProviderStream(responseFormat, response, inputEstimate, onChunk)
   } catch (error) {
     throw rememberProviderBlock(settings, error)
   }
   return {
     ...result,
     requestId: response.headers.get('x-upstream-request-id') || '',
-  }
-}
-
-async function readGeminiStream(response, inputEstimate, onChunk) {
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
-  let text = ''
-  let usage = null
-
-  const consume = (line) => {
-    const trimmed = line.trim()
-    if (!trimmed.startsWith('data:')) return
-    const data = trimmed.slice(5).trim()
-    if (!data || data === '[DONE]') return
-    let event
-    try {
-      event = JSON.parse(data)
-    } catch {
-      return
-    }
-    if (event.error) {
-      throw classifyProviderError({ payload: event, status: response.status, fallback: 'Gemini 请求失败' })
-    }
-    const payload = event.response || event
-    if (payload.usageMetadata) usage = payload.usageMetadata
-    const delta = payload.candidates?.[0]?.content?.parts?.map((part) => part.text || '').join('') || ''
-    if (delta) {
-      text += delta
-      onChunk?.(delta)
-    }
-  }
-
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split('\n')
-    buffer = lines.pop() || ''
-    for (const line of lines) consume(line)
-  }
-  if (buffer) consume(buffer)
-
-  const outputEstimate = Math.ceil(Array.from(text).length / 2.6)
-  return { text, usage: normalizeUsage(usage, inputEstimate, outputEstimate) }
-}
-
-async function readOpenAIStream(response, inputEstimate, onChunk) {
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
-  let text = ''
-  let usage = null
-
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split('\n')
-    buffer = lines.pop() || ''
-    for (const rawLine of lines) {
-      const line = rawLine.trim()
-      if (!line.startsWith('data:')) continue
-      const data = line.slice(5).trim()
-      if (!data || data === '[DONE]') continue
-      let event
-      try {
-        event = JSON.parse(data)
-      } catch {
-        continue
-      }
-      if (event.error) {
-        throw classifyProviderError({ payload: event, status: response.status, fallback: '流式请求失败' })
-      }
-      if (event.usage) usage = event.usage
-      const delta = event.choices?.[0]?.delta?.content || event.choices?.[0]?.text || ''
-      if (delta) {
-        text += delta
-        onChunk?.(delta)
-      }
-    }
-  }
-
-  const outputEstimate = Math.ceil(Array.from(text).length / 2.6)
-  return { text, usage: normalizeUsage(usage, inputEstimate, outputEstimate) }
-}
-
-async function readAnthropicStream(response, inputEstimate, onChunk) {
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
-  let text = ''
-  let input = 0
-  let output = 0
-  let cacheRead = 0
-  let cacheCreation = 0
-  let sawUsage = false
-
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buffer += decoder.decode(value, { stream: true })
-    const blocks = buffer.split('\n\n')
-    buffer = blocks.pop() || ''
-    for (const block of blocks) {
-      const dataLine = block
-        .split('\n')
-        .find((line) => line.startsWith('data:'))
-      if (!dataLine) continue
-      let event
-      try {
-        event = JSON.parse(dataLine.slice(5).trim())
-      } catch {
-        continue
-      }
-      if (event.type === 'error') {
-        throw classifyProviderError({ payload: event, status: response.status, fallback: '流式请求失败' })
-      }
-      if (event.message?.usage) {
-        input = Number(event.message.usage.input_tokens || 0)
-        output = Number(event.message.usage.output_tokens || 0)
-        cacheRead = Number(event.message.usage.cache_read_input_tokens || 0)
-        cacheCreation = Number(event.message.usage.cache_creation_input_tokens || 0)
-        sawUsage = true
-      }
-      if (event.usage) {
-        input = Number(event.usage.input_tokens ?? input)
-        output = Number(event.usage.output_tokens ?? output)
-        cacheRead = Number(event.usage.cache_read_input_tokens ?? cacheRead)
-        cacheCreation = Number(event.usage.cache_creation_input_tokens ?? cacheCreation)
-        sawUsage = true
-      }
-      const delta = event.delta?.text || ''
-      if (delta) {
-        text += delta
-        onChunk?.(delta)
-      }
-    }
-  }
-
-  const outputEstimate = Math.ceil(Array.from(text).length / 2.6)
-  return {
-    text,
-    usage: sawUsage
-      ? { input: input + cacheRead + cacheCreation, output, total: input + cacheRead + cacheCreation + output, reasoning: 0, cached: cacheRead, verified: true }
-      : normalizeUsage(null, inputEstimate, outputEstimate),
   }
 }
 
@@ -720,14 +365,7 @@ async function callProviderOnce(settings, prompt, maxOutput, signal, onChunk) {
   const useStream = settings.stream && request.format !== 'openai-completions'
   if (useStream) {
     try {
-      result =
-        request.format === 'anthropic'
-          ? await readAnthropicStream(response, inputEstimate, onChunk)
-          : request.format === 'openai-responses'
-            ? await readResponsesStream(response, inputEstimate, onChunk)
-            : request.format === 'gemini'
-              ? await readGeminiStream(response, inputEstimate, onChunk)
-              : await readOpenAIStream(response, inputEstimate, onChunk)
+      result = await readProviderStream(request.format, response, inputEstimate, onChunk)
     } catch (error) {
       throw rememberProviderBlock(settings, error)
     }
@@ -735,16 +373,7 @@ async function callProviderOnce(settings, prompt, maxOutput, signal, onChunk) {
     const payload = await response.json()
     const structuredError = classifyProviderError({ payload, status: response.status })
     if (structuredError.providerBlock) throw rememberProviderBlock(settings, structuredError)
-    const text =
-      request.format === 'anthropic'
-        ? payload.content?.map((part) => part.text || '').join('') || ''
-        : request.format === 'openai-responses'
-          ? extractResponsesText(payload)
-          : request.format === 'gemini'
-            ? payload.candidates?.[0]?.content?.parts?.map((part) => part.text || '').join('') || ''
-            : request.format === 'openai-completions'
-              ? payload.choices?.[0]?.text || ''
-              : payload.choices?.[0]?.message?.content || payload.output_text || ''
+    const text = extractResponseText(request.format, payload)
     result = {
       text,
       usage: normalizeUsage(
@@ -773,13 +402,4 @@ export async function callProvider(settings, prompt, maxOutput, signal, onChunk)
   } finally {
     deadline.dispose()
   }
-}
-
-function extractResponsesText(payload) {
-  if (typeof payload.output_text === 'string') return payload.output_text
-  return (payload.output || [])
-    .flatMap((item) => Array.isArray(item.content) ? item.content : [])
-    .filter((part) => part.type === 'output_text' || typeof part.text === 'string')
-    .map((part) => part.text || '')
-    .join('')
 }

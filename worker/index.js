@@ -1,5 +1,6 @@
 import { handleSubscriptionApi, subscriptionStatus } from './subscription.js'
 import { rankForTokens } from '../src/lib/ranks.js'
+import { ACHIEVEMENT_DEFINITIONS } from '../src/lib/achievements.js'
 import { API_NAMESPACES, API_ROUTES, isApiPath } from '../src/lib/apiRoutes.js'
 
 const JSON_HEADERS = {
@@ -22,6 +23,12 @@ const PARTICIPANT_ALLOCATION_ATTEMPTS = 64
 const PARTICIPANT_ALLOCATION_STEP = 7919
 const GEO_ASSERTION_TTL_SECONDS = 10 * 60
 const GEO_ASSERTION_MAX_CLOCK_SKEW_SECONDS = 60
+const SUBSCRIPTION_PROVIDERS = new Set([
+  'chatgpt',
+  'claude_subscription',
+  'gemini_subscription',
+  'grok_subscription',
+])
 
 const SPECIAL_CHINA_REGIONS = {
   HK: '香港特别行政区',
@@ -374,6 +381,91 @@ function leaderboardEntry(entry, isCurrent = false) {
   }
 }
 
+function longestActivityStreak(rows) {
+  const dates = (rows || [])
+    .map((row) => Date.parse(`${row.date_utc}T00:00:00Z`))
+    .filter(Number.isFinite)
+    .sort((left, right) => left - right)
+  let longest = 0
+  let current = 0
+  let previous = 0
+  for (const timestamp of dates) {
+    current = previous && Math.round((timestamp - previous) / 86_400_000) === 1 ? current + 1 : 1
+    longest = Math.max(longest, current)
+    previous = timestamp
+  }
+  return longest
+}
+
+async function syncProfileAchievements(env, profileHash) {
+  const [aggregateResult, providerResult, dateResult, unlockedResult] = await env.TOKEN_KILLER_DB.batch([
+    env.TOKEN_KILLER_DB.prepare(
+      `SELECT
+         COUNT(*) AS run_count,
+         COALESCE(SUM(tokens), 0) AS total_tokens,
+         COALESCE(SUM(rounds), 0) AS total_rounds,
+         COUNT(DISTINCT model) AS model_count,
+         COALESCE(MAX(cost_micros), 0) AS max_run_cost_micros
+       FROM leaderboard_runs
+       WHERE profile_hash = ?`,
+    ).bind(profileHash),
+    env.TOKEN_KILLER_DB.prepare(
+      'SELECT DISTINCT provider FROM leaderboard_runs WHERE profile_hash = ?',
+    ).bind(profileHash),
+    env.TOKEN_KILLER_DB.prepare(
+      'SELECT DISTINCT date_utc FROM leaderboard_runs WHERE profile_hash = ? ORDER BY date_utc ASC',
+    ).bind(profileHash),
+    env.TOKEN_KILLER_DB.prepare(
+      'SELECT achievement_id, unlocked_at FROM profile_achievements WHERE profile_hash = ?',
+    ).bind(profileHash),
+  ])
+  const aggregate = aggregateResult.results?.[0] || {}
+  const providerModes = new Set(
+    (providerResult.results || []).map((row) => (
+      SUBSCRIPTION_PROVIDERS.has(String(row.provider || '')) ? 'subscription' : 'direct'
+    )),
+  )
+  const metrics = {
+    runCount: Number(aggregate.run_count || 0),
+    totalTokens: Number(aggregate.total_tokens || 0),
+    totalRounds: Number(aggregate.total_rounds || 0),
+    modelCount: Number(aggregate.model_count || 0),
+    providerModeCount: providerModes.size,
+    maxRunCost: Number(aggregate.max_run_cost_micros || 0) / 1_000_000,
+    longestStreak: longestActivityStreak(dateResult.results),
+  }
+  const existing = new Map(
+    (unlockedResult.results || []).map((row) => [
+      String(row.achievement_id),
+      Number(row.unlocked_at || 0),
+    ]),
+  )
+  const unlockedDefinitions = ACHIEVEMENT_DEFINITIONS.filter(
+    (definition) => metrics[definition.metric] >= definition.target,
+  )
+  const now = Math.floor(Date.now() / 1000)
+  const newlyUnlocked = unlockedDefinitions.filter((definition) => !existing.has(definition.id))
+  if (newlyUnlocked.length) {
+    await env.TOKEN_KILLER_DB.batch(newlyUnlocked.map((definition) => (
+      env.TOKEN_KILLER_DB.prepare(
+        `INSERT OR IGNORE INTO profile_achievements
+          (profile_hash, achievement_id, unlocked_at)
+         VALUES (?, ?, ?)`,
+      ).bind(profileHash, definition.id, now)
+    )))
+  }
+  const unlocked = unlockedDefinitions.map((definition) => ({
+    id: definition.id,
+    unlockedAt: (existing.get(definition.id) || now) * 1000,
+  }))
+  return {
+    synced: true,
+    unlocked,
+    newlyUnlocked: newlyUnlocked.map((definition) => definition.id),
+    metrics,
+  }
+}
+
 async function getLeaderboardProfile(request, env, cors) {
   const body = await readJson(request)
   const installationId = requiredText(body.installationId, 'installationId', 16, 128)
@@ -389,12 +481,14 @@ async function getLeaderboardProfile(request, env, cors) {
   }
 
   const globalResult = ranks.find((item) => item.scope === 'global') || { tokens: 0, rank: null }
+  const achievements = await syncProfileAchievements(env, profileHash)
   return json({
     participantLabel: profile.participantLabel,
     totalTokens: globalResult.tokens,
     tier: rankForTokens(globalResult.tokens),
     context,
     ranks,
+    achievements,
   }, 200, cors)
 }
 
@@ -510,7 +604,13 @@ async function submitRun(request, env, cors) {
     env.TOKEN_KILLER_DB.prepare('UPDATE run_sessions SET submitted_at = ? WHERE id = ? AND submitted_at IS NULL').bind(now, sessionId),
   ])
 
-  return json({ ok: true, runId, verification: 'supplier-usage-client-receipt' }, 201, cors)
+  const achievements = await syncProfileAchievements(env, session.profile_hash)
+  return json({
+    ok: true,
+    runId,
+    verification: 'supplier-usage-client-receipt',
+    achievements,
+  }, 201, cors)
 }
 
 async function profileRankForScope(env, profileHash, requestedScope, geo) {

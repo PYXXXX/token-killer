@@ -68,6 +68,9 @@ test('SQLite adapter migrates and serves the leaderboard API across restarts', a
     status: 'completed',
   })
   assert.equal(submitResponse.status, 201)
+  const submitted = await submitResponse.json()
+  assert.deepEqual(submitted.achievements.newlyUnlocked, ['first-spark'])
+  assert.equal(submitted.achievements.metrics.totalTokens, 1000)
 
   const cityBoardResponse = await request('/api/leaderboard', {
     installationId: profileRequest.installationId,
@@ -89,7 +92,10 @@ test('SQLite adapter migrates and serves the leaderboard API across restarts', a
 
   const secondProfileResponse = await request('/api/leaderboard/profile', profileRequest)
   assert.equal(secondProfileResponse.status, 200)
-  assert.equal((await secondProfileResponse.json()).participantLabel, firstProfile.participantLabel)
+  const secondProfile = await secondProfileResponse.json()
+  assert.equal(secondProfile.participantLabel, firstProfile.participantLabel)
+  assert.equal(secondProfile.achievements.synced, true)
+  assert.equal(secondProfile.achievements.unlocked[0].id, 'first-spark')
 
   database.close()
   fs.rmSync(directory, { recursive: true, force: true })

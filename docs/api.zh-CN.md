@@ -20,11 +20,13 @@ Token Killer 自己提供的 HTTP 接口全部统一在 `/api` 下。使用 API 
 | 方法 | 路径 | 用途 |
 | --- | --- | --- |
 | `GET`、`POST` | `/api/leaderboard` | 读取一页排行榜。前端使用 `POST`，从而不必把安装编号与地区凭证写入查询字符串。 |
-| `POST` | `/api/leaderboard/profile` | 获取当前参与者编号、名次、段位和赛区信息。 |
+| `POST` | `/api/leaderboard/profile` | 获取当前参与者编号、名次、段位、赛区与已保存的成就信息。 |
 | `POST` | `/api/leaderboard/sessions` | 在消耗任务开始前创建带签名的提交会话。 |
 | `POST` | `/api/leaderboard/runs` | 把已经完成并核验 usage 的运行提交到排行榜。 |
 
 排行榜只接收用于汇总的数据，不会接收 API Key、OAuth 凭据、Prompt、模型响应或浏览器内的 Provider 黑名单。
+
+成就由排行榜服务根据已经接收的 usage 回执计算，浏览器不能直接提交“已解锁”状态。参与者资料会返回成就 ID、解锁时间和汇总进度，不包含任何请求正文。服务暂时不可用时，前端仍可根据本地运行记录显示临时进度；重新连接后会与云端资料合并。
 
 ## 订阅 OAuth
 

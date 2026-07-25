@@ -140,7 +140,7 @@ npm run db:migrate:remote
 
 Wrangler asks whether to apply the files in `migrations/`. Confirm to continue.
 
-D1 issues globally unique leaderboard numbers. Existing deployments must run this command again to apply `0005_leaderboard_profiles.sql`. The migration keeps existing numbers where possible; participants involved in a collision receive a new server-issued number the next time they connect.
+D1 issues globally unique leaderboard numbers. Existing deployments must run this command again to apply both `0005_leaderboard_profiles.sql` and `0006_profile_achievements.sql`. The first migration keeps existing numbers where possible; participants involved in a collision receive a new server-issued number the next time they connect. The second stores achievement unlocks derived from verified leaderboard runs.
 
 ### 6. Configure Gemini OAuth (optional)
 

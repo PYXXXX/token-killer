@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { evaluateAchievements } from '../src/lib/achievements.js'
+import { evaluateAchievements, mergeCloudAchievements } from '../src/lib/achievements.js'
 
 test('achievements unlock from aggregate run data without storing extra state', () => {
   const achievements = evaluateAchievements([
@@ -67,4 +67,28 @@ test('model and black-hole achievements keep exact thresholds', () => {
   assert.equal(achievements.items.find((item) => item.id === 'model-sampler').unlocked, true)
   assert.equal(achievements.items.find((item) => item.id === 'black-hole').unlocked, true)
   assert.equal(achievements.unlockedCount, 5)
+})
+
+test('cloud achievements merge with local progress without losing offline unlocks', () => {
+  const local = evaluateAchievements([
+    { date: '2026-07-01', provider: 'openai', model: 'a', tokens: 10_000, rounds: 1 },
+  ])
+  const merged = mergeCloudAchievements(local, {
+    unlocked: [{ id: 'hundred-thousand', unlockedAt: 123_000 }],
+    metrics: {
+      runCount: 4,
+      totalTokens: 120_000,
+      totalRounds: 10,
+      modelCount: 2,
+      providerModeCount: 1,
+      maxRunCost: 1,
+      longestStreak: 2,
+    },
+  })
+
+  assert.equal(merged.cloudSynced, true)
+  assert.equal(merged.items.find((item) => item.id === 'first-spark').unlocked, true)
+  assert.equal(merged.items.find((item) => item.id === 'hundred-thousand').cloud, true)
+  assert.equal(merged.metrics.totalTokens, 120_000)
+  assert.equal(merged.unlockedCount, 2)
 })
