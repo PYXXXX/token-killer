@@ -1296,131 +1296,345 @@ main {
   align-items: stretch;
 }
 
-.chart-section {
-  min-height: 520px;
+.achievement-section {
+  min-width: 0;
+  max-width: 100%;
+  margin-bottom: 22px;
+  padding-bottom: 20px;
+  overflow: hidden;
 }
 
-.rankings-window {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  align-self: flex-start;
-  padding: 8px 10px;
+.achievement-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.achievement-heading h2 {
+  margin: 0;
+  font-size: 19px;
+}
+
+.achievement-heading p {
+  margin: 7px 0 0;
   color: var(--ink-soft);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-control);
-  background: var(--surface-strong);
   font-size: 10px;
+}
+
+.achievement-heading > strong {
+  color: var(--accent);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 18px;
+}
+
+.achievement-track {
+  width: 100%;
+  max-width: 100%;
+  display: grid;
+  grid-auto-columns: minmax(210px, 0.72fr);
+  grid-auto-flow: column;
+  gap: 9px;
+  margin-top: 20px;
+  padding-bottom: 7px;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+.achievement-card {
+  min-height: 142px;
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  grid-template-rows: 1fr auto;
+  gap: 13px;
+  align-items: start;
+  padding: 17px;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: var(--surface-strong);
+  text-align: left;
+  scroll-snap-align: start;
+}
+
+.achievement-card.unlocked:hover,
+.achievement-card.unlocked.selected {
+  border-color: color-mix(in srgb, var(--accent) 62%, var(--line));
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface-strong));
+}
+
+.achievement-card.unlocked:active {
+  transform: translateY(1px);
+}
+
+.achievement-card.locked {
+  color: var(--ink-faint);
+  cursor: default;
+  opacity: 0.72;
+}
+
+.achievement-mark {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  color: var(--ink-faint);
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface);
+}
+
+.achievement-card.unlocked .achievement-mark {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 36%, var(--line));
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+}
+
+.achievement-copy {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.achievement-copy strong {
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.achievement-copy small {
+  color: var(--ink-soft);
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.achievement-progress {
+  grid-column: 1 / -1;
+  color: var(--ink-faint);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 8px;
+}
+
+.achievement-card.unlocked .achievement-progress {
+  color: var(--accent);
   font-weight: 700;
 }
 
-.rankings-window > span {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent);
-}
-
-.model-volume-chart {
-  height: 262px;
-  display: grid;
-  grid-template-columns: 40px minmax(0, 1fr);
-  gap: 10px;
-  margin-top: 22px;
-}
-
-.model-chart-scale {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  padding: 25px 0 25px;
-  color: var(--ink-faint);
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
-  font-size: 8px;
-  text-align: right;
-}
-
-.model-chart-main {
-  position: relative;
-  min-width: 0;
-}
-
-.model-chart-grid {
-  position: absolute;
-  inset: 28px 0 25px;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  pointer-events: none;
-}
-
-.model-chart-grid i {
-  display: block;
-  border-top: 1px solid var(--line);
-}
-
-.stacked-bars {
-  position: relative;
-  z-index: 1;
-  height: 100%;
-  display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: clamp(8px, 2vw, 18px);
-}
-
-.stacked-day {
-  height: 100%;
-  min-width: 0;
-  display: grid;
-  grid-template-rows: 22px 1fr 24px;
-  gap: 5px;
-  text-align: center;
-}
-
-.stacked-value {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--ink-soft);
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
-  font-size: 8px;
-  text-overflow: ellipsis;
-}
-
-.stacked-column {
-  min-height: 0;
-  display: flex;
-  flex-direction: column-reverse;
-  justify-content: flex-start;
-  gap: 2px;
-  padding-inline: clamp(2px, 0.8vw, 8px);
-  overflow: hidden;
-}
-
-.model-segment {
-  display: block;
-  flex: 0 0 auto;
-  width: 100%;
-  min-height: 2px;
-  border-radius: 3px;
-  transition: height 500ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.tone-0 { background: var(--accent); }
-.tone-1 { background: color-mix(in srgb, var(--accent) 72%, var(--ink-soft)); }
-.tone-2 { background: color-mix(in srgb, var(--accent) 48%, var(--surface-subtle)); }
-.tone-3 { background: color-mix(in srgb, var(--accent) 28%, var(--ink-faint)); }
-.tone-other { background: var(--ink-faint); }
-
-.stacked-label {
+.achievement-note {
+  margin: 8px 0 0;
   color: var(--ink-faint);
   font-size: 9px;
+}
+
+.stats-layout > * {
+  min-width: 0;
+}
+
+.chart-section {
+  min-height: 500px;
+}
+
+.activity-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.activity-heading h2 {
+  margin: 0;
+  font-size: 19px;
+}
+
+.activity-heading p {
+  margin: 7px 0 0;
+  color: var(--ink-soft);
+  font-size: 10px;
+}
+
+.activity-tabs {
+  display: flex;
+  align-items: center;
+  gap: 17px;
+}
+
+.activity-tabs button {
+  min-height: 28px;
+  padding: 0;
+  color: var(--ink-faint);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.activity-tabs button:hover,
+.activity-tabs button.active {
+  color: var(--ink);
+  background: transparent;
+}
+
+.activity-scroll {
+  width: 100%;
+  margin-top: 26px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+.activity-year-view,
+.activity-week-view {
+  min-width: 710px;
+}
+
+.activity-day-grid {
+  display: grid;
+  grid-template-columns: repeat(53, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.activity-week-column {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.activity-cell {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 4px;
+  background: var(--surface-strong);
+  transition: transform 160ms ease, background-color 160ms ease;
+}
+
+.activity-cell.level-1 { background: color-mix(in srgb, var(--accent) 22%, var(--surface-strong)); }
+.activity-cell.level-2 { background: color-mix(in srgb, var(--accent) 43%, var(--surface-strong)); }
+.activity-cell.level-3 { background: color-mix(in srgb, var(--accent) 68%, var(--surface-strong)); }
+.activity-cell.level-4 { background: var(--accent); }
+.activity-cell.is-future { opacity: 0.22; }
+
+.activity-cell[title]:hover {
+  transform: scale(1.18);
+}
+
+.activity-month-labels {
+  display: grid;
+  grid-template-columns: repeat(var(--activity-columns), minmax(0, 1fr));
+  gap: 4px;
+  min-height: 22px;
+  margin-top: 9px;
+  color: var(--ink-faint);
+  font-size: 9px;
+}
+
+.activity-month-labels span {
+  white-space: nowrap;
+}
+
+.activity-week-cells {
+  display: grid;
+  grid-template-columns: repeat(53, minmax(0, 1fr));
+  gap: 4px;
+  padding-block: 30px 34px;
+}
+
+.activity-month-view {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 8px;
+  min-height: 164px;
+  margin-top: 26px;
+  align-items: end;
+}
+
+.activity-month {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+}
+
+.activity-month .activity-cell {
+  aspect-ratio: 1 / 1.8;
+}
+
+.activity-month span,
+.activity-month strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-month span {
+  color: var(--ink-faint);
+  font-size: 9px;
+}
+
+.activity-month strong {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 9px;
+}
+
+.activity-summary {
+  display: grid;
+  grid-template-columns: 1.4fr repeat(3, 1fr);
+  margin-top: 18px;
+  padding-block: 16px;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.activity-summary > div {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  padding: 0 14px;
+  border-left: 1px solid var(--line);
+}
+
+.activity-summary > div:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+
+.activity-summary span {
+  color: var(--ink-faint);
+  font-size: 8px;
+}
+
+.activity-summary strong {
+  overflow: hidden;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-models {
+  margin-top: 19px;
+}
+
+.activity-models-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  color: var(--ink-soft);
+  font-size: 9px;
+}
+
+.activity-models-head span {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
 }
 
 .model-ranking-list {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin: 22px 0 0;
-  padding: 16px 0 0;
+  margin: 10px 0 0;
+  padding: 9px 0 0;
   border-top: 1px solid var(--line);
   list-style: none;
 }
@@ -1450,6 +1664,23 @@ main {
   width: 8px;
   height: 8px;
   border-radius: 2px;
+}
+
+.model-swatch.tone-0 {
+  background: var(--accent);
+}
+
+.model-swatch.tone-1 {
+  background: color-mix(in srgb, var(--accent) 76%, var(--ink));
+}
+
+.model-swatch.tone-2 {
+  background: color-mix(in srgb, var(--accent) 54%, var(--ink-soft));
+}
+
+.model-swatch.tone-3,
+.model-swatch.tone-other {
+  background: var(--line-strong);
 }
 
 .model-ranking-list div {
@@ -1491,48 +1722,104 @@ main {
 .share-card-section {
   min-width: 0;
   display: grid;
-  grid-template-rows: 1fr auto;
+  grid-template-rows: auto 1fr auto;
   gap: 10px;
 }
 
+.share-story-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-strong);
+}
+
+.share-story-tabs button {
+  min-height: 32px;
+  padding: 0 9px;
+  color: var(--ink-faint);
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  font-size: 9px;
+}
+
+.share-story-tabs button:hover:not(:disabled),
+.share-story-tabs button.active {
+  color: var(--ink);
+  background: var(--surface);
+}
+
+.share-story-tabs button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .share-card {
-  min-height: 330px;
+  min-height: 420px;
   display: flex;
   flex-direction: column;
   padding: 25px;
   overflow: hidden;
-  color: #24221e;
+  color: var(--ink);
   border-radius: var(--radius-card);
-  background: #eee9df;
-  border: 1px solid rgba(217, 87, 58, 0.18);
+  background: var(--surface);
+  border: 1px solid var(--line);
 }
 
 .share-card-head {
   display: flex;
   align-items: center;
-  gap: 9px;
-  color: #d9573a;
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-}
-
-.share-card > strong {
-  margin-top: auto;
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
-  font-size: clamp(44px, 6vw, 74px);
-  font-weight: 620;
-  letter-spacing: -0.07em;
-  line-height: 0.95;
-}
-
-.share-card > p {
-  margin: 12px 0 32px;
-  color: #716c63;
-  font-size: 11px;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
   font-weight: 650;
-  letter-spacing: 0.07em;
+}
+
+.share-card-head small {
+  color: var(--ink-faint);
+  font-size: 9px;
+  font-weight: 550;
+}
+
+.share-activity-grid {
+  display: grid;
+  grid-template-columns: repeat(14, minmax(0, 1fr));
+  gap: 4px;
+  margin-top: 24px;
+}
+
+.share-activity-grid > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.share-activity-grid .activity-cell {
+  border-radius: 3px;
+}
+
+.share-card-total {
+  display: grid;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 27px;
+}
+
+.share-card-total span {
+  color: var(--ink-faint);
+  font-size: 9px;
+}
+
+.share-card-total strong {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: clamp(34px, 4vw, 52px);
+  font-weight: 650;
+  letter-spacing: -0.06em;
+  line-height: 0.95;
 }
 
 .share-card-rank {
@@ -1540,7 +1827,7 @@ main {
   align-items: center;
   gap: 7px;
   margin-bottom: 13px;
-  color: #d9573a;
+  color: var(--accent);
   font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
   font-size: 10px;
   font-weight: 700;
@@ -1548,7 +1835,7 @@ main {
 
 .share-card-rank b {
   margin-left: auto;
-  color: #716c63;
+  color: var(--ink-soft);
   font-size: 9px;
   font-weight: 650;
 }
@@ -1558,9 +1845,84 @@ main {
   justify-content: space-between;
   gap: 16px;
   padding-top: 14px;
-  color: #716c63;
+  color: var(--ink-soft);
   font-size: 10px;
-  border-top: 1px solid #d6d0c5;
+  border-top: 1px solid var(--line);
+}
+
+.share-card-cost {
+  margin-top: 9px;
+  color: var(--ink-faint);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 8px;
+  text-align: right;
+}
+
+.share-card-rank-story,
+.share-card-achievement-story {
+  position: relative;
+}
+
+.share-rank-emblem,
+.share-achievement-mark {
+  width: 72px;
+  height: 72px;
+  display: grid;
+  place-items: center;
+  margin-top: 34px;
+  color: var(--accent);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--accent) 11%, var(--surface-strong));
+}
+
+.share-rank-name,
+.share-achievement-copy {
+  display: grid;
+  gap: 9px;
+  margin-top: 25px;
+}
+
+.share-rank-name span,
+.share-achievement-copy > span,
+.share-rank-position span {
+  color: var(--ink-faint);
+  font-size: 9px;
+}
+
+.share-rank-name strong,
+.share-achievement-copy strong {
+  font-size: clamp(28px, 3.4vw, 43px);
+  letter-spacing: -0.05em;
+  line-height: 1;
+}
+
+.share-rank-position {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 20px;
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.share-rank-position b {
+  color: var(--accent);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 22px;
+}
+
+.share-card-rank-story .share-card-foot,
+.share-card-achievement-story .share-card-foot {
+  margin-top: auto;
+}
+
+.share-achievement-copy p {
+  max-width: 34ch;
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 10px;
+  line-height: 1.55;
 }
 
 .share-actions {
@@ -2731,7 +3093,7 @@ main {
   }
 
   .share-card {
-    min-height: 360px;
+    min-height: 420px;
   }
 }
 
@@ -2810,6 +3172,7 @@ main {
   .prompt-block,
   .settings-section,
   .chart-section,
+  .achievement-section,
   .history-section,
   .leaderboard-section {
     padding: 18px;
@@ -2918,13 +3281,51 @@ main {
     gap: 5px;
   }
 
-  .model-volume-chart {
-    grid-template-columns: 30px minmax(0, 1fr);
-    gap: 7px;
+  .activity-heading {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
   }
 
-  .stacked-column {
-    padding-inline: 1px;
+  .achievement-heading {
+    align-items: flex-start;
+  }
+
+  .achievement-track {
+    grid-auto-columns: min(78vw, 250px);
+    margin-right: -18px;
+    padding-right: 18px;
+  }
+
+  .activity-tabs {
+    justify-content: flex-start;
+  }
+
+  .activity-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .activity-summary > div {
+    padding: 12px 0;
+    border-left: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .activity-summary > div:nth-child(2n) {
+    padding-left: 14px;
+    border-left: 1px solid var(--line);
+  }
+
+  .activity-summary > div:nth-last-child(-n + 2) {
+    border-bottom: 0;
+  }
+
+  .activity-month-view {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .activity-month .activity-cell {
+    aspect-ratio: 1.8 / 1;
   }
 
   .model-ranking-list {

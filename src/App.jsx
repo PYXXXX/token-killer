@@ -17,6 +17,7 @@ import {
   Key,
   Lightning,
   ListChecks,
+  LockSimple,
   Moon,
   MapPin,
   Pause,
@@ -28,6 +29,7 @@ import {
   Sun,
   Trash,
   Translate,
+  Trophy,
   XLogo,
 } from '@phosphor-icons/react'
 import { I18nProvider, Localized } from './Localized.jsx'
@@ -86,6 +88,8 @@ import { exportShareCard } from './lib/share.js'
 import { clearLocalVault, deleteEncryptedSecret, getEncryptedSecret, saveEncryptedSecret } from './lib/localVault.js'
 import { providerBlockedMessage } from './lib/providerGuard.js'
 import { localeTag, resolveLocale, t, translateText } from './lib/i18n.js'
+import { activityLevel, buildTokenActivity } from './lib/activity.js'
+import { evaluateAchievements } from './lib/achievements.js'
 
 const isSubscriptionProvider = (provider) => SUBSCRIPTION_PROVIDER_IDS.includes(provider)
 const accountProviderForSettings = (provider) => ({
@@ -596,13 +600,282 @@ function BurnPanel({ settings, updateSettings, catalogState, session, onStart, o
   )
 }
 
+function ActivityMatrix({ activity, mode, locale }) {
+  const tokensLabel = (tokens) => `${formatTokens(tokens)} Token`
+
+  if (mode === 'week') {
+    return (
+      <div className="activity-scroll">
+        <div className="activity-week-view" role="img" aria-label={t(locale, '过去 53 周 Token 活动', 'Token activity over the past 53 weeks')}>
+          <div className="activity-week-cells">
+            {activity.weeks.map((week) => (
+              <i
+                className={`activity-cell level-${activityLevel(week.tokens, activity.weeklyPeak)}`}
+                key={week.key}
+                title={`${week.label}: ${tokensLabel(week.tokens)}`}
+                aria-hidden="true"
+              />
+            ))}
+          </div>
+          <div className="activity-month-labels" style={{ '--activity-columns': activity.weeks.length }}>
+            {activity.monthLabels.map((month) => (
+              <span key={`${month.index}-${month.label}`} style={{ gridColumn: month.index + 1 }}>{month.label}</span>
+            ))}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (mode === 'total') {
+    return (
+      <div className="activity-month-view" role="img" aria-label={t(locale, '过去 12 个月累计 Token 活动', 'Monthly token activity over the past 12 months')}>
+        {activity.months.map((month) => (
+          <div className="activity-month" key={month.key} title={`${month.label}: ${tokensLabel(month.tokens)}`}>
+            <i className={`activity-cell level-${activityLevel(month.tokens, activity.monthlyPeak)}`} aria-hidden="true" />
+            <span>{month.label}</span>
+            <strong>{formatTokens(month.tokens)}</strong>
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  return (
+    <div className="activity-scroll">
+      <div className="activity-year-view" role="img" aria-label={t(locale, '过去一年每日 Token 活动', 'Daily token activity over the past year')}>
+        <div className="activity-day-grid">
+          {activity.weeks.map((week) => (
+            <div className="activity-week-column" key={week.key}>
+              {week.days.map((day) => (
+                <i
+                  className={`activity-cell level-${day.isFuture ? 0 : activityLevel(day.tokens, activity.dailyPeak)} ${day.isFuture ? 'is-future' : ''}`}
+                  key={day.key}
+                  title={day.isFuture ? '' : `${day.label}: ${tokensLabel(day.tokens)}`}
+                  aria-hidden="true"
+                />
+              ))}
+            </div>
+          ))}
+        </div>
+        <div className="activity-month-labels" style={{ '--activity-columns': activity.weeks.length }}>
+          {activity.monthLabels.map((month) => (
+            <span key={`${month.index}-${month.label}`} style={{ gridColumn: month.index + 1 }}>{month.label}</span>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function CompactActivityMatrix({ activity }) {
+  const weeks = activity.weeks.slice(-14)
+  return (
+    <div className="share-activity-grid" aria-hidden="true">
+      {weeks.map((week) => (
+        <div key={week.key}>
+          {week.days.map((day) => (
+            <i
+              className={`activity-cell level-${day.isFuture ? 0 : activityLevel(day.tokens, activity.dailyPeak)} ${day.isFuture ? 'is-future' : ''}`}
+              key={day.key}
+            />
+          ))}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+const ACHIEVEMENT_ICONS = {
+  fire: Fire,
+  tokens: Database,
+  lightning: Lightning,
+  rounds: ListChecks,
+  models: ChartBar,
+  platforms: SlidersHorizontal,
+  cost: Gauge,
+  streak: Star,
+  'black-hole': Crown,
+}
+
+function AchievementMark({ achievement, size = 22 }) {
+  const Icon = ACHIEVEMENT_ICONS[achievement.icon] || Trophy
+  return <Icon size={size} weight={achievement.unlocked ? 'fill' : 'regular'} />
+}
+
+function achievementTitle(achievement, locale) {
+  return locale === 'en' ? achievement.titleEn : achievement.title
+}
+
+function achievementDescription(achievement, locale) {
+  return locale === 'en' ? achievement.descriptionEn : achievement.description
+}
+
+function achievementProgressLabel(achievement, locale) {
+  const current = Math.min(achievement.current, achievement.target)
+  if (achievement.valueType === 'tokens') {
+    return `${formatTokens(current)} / ${formatTokens(achievement.target)} Token`
+  }
+  if (achievement.valueType === 'money') {
+    return `${formatMoney(current)} / ${formatMoney(achievement.target)}`
+  }
+  const suffix = {
+    runs: locale === 'en' ? 'runs' : '次运行',
+    rounds: locale === 'en' ? 'rounds' : '轮',
+    models: locale === 'en' ? 'models' : '个模型',
+    modes: locale === 'en' ? 'modes' : '种模式',
+    days: locale === 'en' ? 'days' : '天',
+  }[achievement.valueType] || ''
+  return `${formatTokens(current)} / ${formatTokens(achievement.target)} ${suffix}`
+}
+
+function AchievementGallery({ achievements, locale, selectedId, onSelect }) {
+  return (
+    <section className="achievement-section section-block">
+      <div className="achievement-heading">
+        <div>
+          <h2>{t(locale, '燃烧成就', 'Burn achievements')}</h2>
+          <p>{t(locale, '每一枚都由本机运行记录自动解锁。', 'Each one unlocks from your browser run history.')}</p>
+        </div>
+        <strong>{achievements.unlockedCount} / {achievements.totalCount}</strong>
+      </div>
+      <div className="achievement-track">
+        {achievements.items.map((achievement) => {
+          const selected = achievement.id === selectedId
+          return (
+            <button
+              className={`achievement-card ${achievement.unlocked ? 'unlocked' : 'locked'} ${selected ? 'selected' : ''}`}
+              key={achievement.id}
+              type="button"
+              disabled={!achievement.unlocked}
+              aria-pressed={achievement.unlocked ? selected : undefined}
+              onClick={() => onSelect(achievement.id)}
+            >
+              <span className="achievement-mark">
+                {achievement.unlocked
+                  ? <AchievementMark achievement={achievement} />
+                  : <LockSimple size={20} weight="bold" />}
+              </span>
+              <span className="achievement-copy">
+                <strong>{achievementTitle(achievement, locale)}</strong>
+                <small>{achievementDescription(achievement, locale)}</small>
+              </span>
+              <span className="achievement-progress">
+                {achievement.unlocked
+                  ? t(locale, '已解锁', 'Unlocked')
+                  : achievementProgressLabel(achievement, locale)}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+      <p className="achievement-note">
+        {achievements.unlockedCount
+          ? t(locale, '选择已解锁成就，可生成专属分享战报。', 'Select an unlocked achievement to create its share story.')
+          : t(locale, '完成第一次消耗后，这里会亮起第一枚成就。', 'Complete your first burn to light up the first achievement.')}
+      </p>
+    </section>
+  )
+}
+
+function ShareStoryCard({
+  story,
+  activity,
+  todayTokens,
+  totalTokens,
+  totalCost,
+  globalRank,
+  tier,
+  participantLabel,
+  achievement,
+  achievements,
+  locale,
+}) {
+  if (story === 'rank') {
+    return (
+      <div className="share-card share-card-rank-story">
+        <div className="share-card-head">
+          <span>{t(locale, '段位战报', 'Rank report')}</span>
+          <small>{translateText(locale, participantLabel)}</small>
+        </div>
+        <div className="share-rank-emblem"><Crown size={32} weight="fill" /></div>
+        <div className="share-rank-name">
+          <span>{t(locale, '当前段位', 'Current rank')}</span>
+          <strong>{translateText(locale, tier.fullName)}</strong>
+        </div>
+        <div className="share-rank-position">
+          <span>{t(locale, '全球排名', 'Global rank')}</span>
+          <b>{globalRank ? `#${globalRank}` : t(locale, '冲击中', 'Climbing')}</b>
+        </div>
+        <div className="share-card-foot">
+          <span>{t(locale, `累计 ${formatTokens(totalTokens)} Token`, `Lifetime ${formatTokens(totalTokens)} Token`)}</span>
+          <span>{t(locale, `还差 ${formatTokens(tier.tokensToNext)} Token`, `${formatTokens(tier.tokensToNext)} Token to next rank`)}</span>
+        </div>
+      </div>
+    )
+  }
+
+  if (story === 'achievement' && achievement) {
+    return (
+      <div className="share-card share-card-achievement-story">
+        <div className="share-card-head">
+          <span>{t(locale, '成就战报', 'Achievement report')}</span>
+          <small>{achievements.unlockedCount} / {achievements.totalCount}</small>
+        </div>
+        <div className="share-achievement-mark"><AchievementMark achievement={achievement} size={40} /></div>
+        <div className="share-achievement-copy">
+          <span>{t(locale, '新成就已解锁', 'Achievement unlocked')}</span>
+          <strong>{achievementTitle(achievement, locale)}</strong>
+          <p>{achievementDescription(achievement, locale)}</p>
+        </div>
+        <div className="share-card-foot">
+          <span>{translateText(locale, participantLabel)}</span>
+          <span>{formatTokens(totalTokens)} Token</span>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="share-card">
+      <div className="share-card-head">
+        <span>{t(locale, 'Token 活动', 'Token activity')}</span>
+        <small>{t(locale, '过去 14 周', 'Past 14 weeks')}</small>
+      </div>
+      <CompactActivityMatrix activity={activity} />
+      <div className="share-card-total">
+        <span>{t(locale, '今日消耗', 'Burned today')}</span>
+        <strong>{formatTokens(todayTokens)}</strong>
+      </div>
+      <div className="share-card-rank">
+        <Crown size={16} weight="fill" />
+        <span>{globalRank ? t(locale, `全球第 ${globalRank} 名`, `Global #${globalRank}`) : t(locale, '冲击全球榜', 'Climbing the global board')}</span>
+        <b>{translateText(locale, tier.fullName)}</b>
+      </div>
+      <div className="share-card-foot">
+        <span>{t(locale, `累计 ${formatTokens(totalTokens)} Token`, `Lifetime ${formatTokens(totalTokens)} Token`)}</span>
+        <span>{translateText(locale, participantLabel)}</span>
+      </div>
+      <span className="share-card-cost">{t(locale, `估算 ${formatMoney(totalCost)}`, `Estimated ${formatMoney(totalCost)}`)}</span>
+    </div>
+  )
+}
+
 function StatsPanel({ runs, settings, leaderboardVersion, participantLabel }) {
   const locale = useLocale()
+  const formatDayCount = (value) => (
+    locale.startsWith('en')
+      ? `${value} ${value === 1 ? 'day' : 'days'}`
+      : `${value} 天`
+  )
+  const [activityMode, setActivityMode] = useState('day')
   const [boardPeriod, setBoardPeriod] = useState('day')
   const [boardScope, setBoardScope] = useState('global')
   const [boardPage, setBoardPage] = useState(1)
   const [boardRefresh, setBoardRefresh] = useState(0)
   const [viewedTierId, setViewedTierId] = useState('')
+  const [shareStory, setShareStory] = useState('activity')
+  const [selectedAchievementId, setSelectedAchievementId] = useState('')
   const [globalBoard, setGlobalBoard] = useState({
     status: 'loading',
     entries: [],
@@ -621,6 +894,13 @@ function StatsPanel({ runs, settings, leaderboardVersion, participantLabel }) {
   const totalTokens = runs.reduce((sum, run) => sum + run.tokens, 0)
   const totalCost = runs.reduce((sum, run) => sum + run.cost, 0)
   const totalRounds = runs.reduce((sum, run) => sum + run.rounds, 0)
+  const activity = useMemo(
+    () => buildTokenActivity(runs, { locale: localeTag(locale) }),
+    [runs, locale],
+  )
+  const achievements = useMemo(() => evaluateAchievements(runs), [runs])
+  const selectedAchievement = achievements.unlockedItems.find((item) => item.id === selectedAchievementId)
+    || achievements.latest
   const days = Array.from({ length: 7 }, (_, index) => {
     const date = new Date()
     date.setDate(date.getDate() - (6 - index))
@@ -644,22 +924,6 @@ function StatsPanel({ runs, settings, leaderboardVersion, participantLabel }) {
     .map(([model, tokens]) => ({ model, tokens }))
     .sort((a, b) => b.tokens - a.tokens)
     .slice(0, 4)
-  const rankedModelNames = new Set(rankedModels.map((item) => item.model))
-  const stackedDays = days.map((day) => ({
-    ...day,
-    segments: rankedModels.map((item, index) => ({
-      model: item.model,
-      tone: index,
-      tokens: day.runs
-        .filter((run) => String(run.model || '未标注模型') === item.model)
-        .reduce((sum, run) => sum + Number(run.tokens || 0), 0),
-    })),
-    other: day.runs
-      .filter((run) => !rankedModelNames.has(String(run.model || '未标注模型')))
-      .reduce((sum, run) => sum + Number(run.tokens || 0), 0),
-  }))
-  const dailyPeak = Math.max(...stackedDays.map((day) => day.tokens), 1)
-  const hasChartData = stackedDays.some((day) => day.tokens > 0)
   const localLeaderboard = [...runs].sort((a, b) => b.tokens - a.tokens).slice(0, 5)
   const boardSource = leaderboardSourceLabel(settings.leaderboardApiUrl)
   const geoApiUrl = settings.autoSelectRegion ? settings.geoApiUrl : ''
@@ -755,11 +1019,23 @@ function StatsPanel({ runs, settings, leaderboardVersion, participantLabel }) {
   const displayedBoardEntries = globalBoard.currentEntry && !currentEntryOnPage
     ? [{ ...globalBoard.currentEntry, pinned: true }, ...globalBoard.entries]
     : globalBoard.entries
-  const shareText = t(
-    locale,
-    `我今天用 Token Killer 消耗了 ${formatTokens(todayTokens)} 个无意义 Token，累计 ${formatTokens(totalTokens)}。${rankingPhrase}，你也快来【${deploymentUrl}】浪费 Token 吧。`,
-    `I burned ${formatTokens(todayTokens)} pointless tokens with Token Killer today, ${formatTokens(totalTokens)} in total. ${rankingPhrase}. Come waste yours at ${deploymentUrl}.`,
-  )
+  const shareText = shareStory === 'achievement' && selectedAchievement
+    ? t(
+      locale,
+      `我在 Token Killer 解锁了“${selectedAchievement.title}”，累计消耗 ${formatTokens(totalTokens)} Token。你也快来【${deploymentUrl}】点亮自己的成就吧。`,
+      `I unlocked "${selectedAchievement.titleEn}" in Token Killer after burning ${formatTokens(totalTokens)} tokens. Light up yours at ${deploymentUrl}.`,
+    )
+    : shareStory === 'rank'
+      ? t(
+        locale,
+        `我在 Token Killer 达到 ${currentTier.fullName}，${rankingPhrase}，累计消耗 ${formatTokens(totalTokens)} Token。你也快来【${deploymentUrl}】挑战我的段位吧。`,
+        `I reached ${translateText(locale, currentTier.fullName)} in Token Killer. ${rankingPhrase}, with ${formatTokens(totalTokens)} tokens burned. Challenge my rank at ${deploymentUrl}.`,
+      )
+      : t(
+        locale,
+        `我今天用 Token Killer 消耗了 ${formatTokens(todayTokens)} 个无意义 Token，累计 ${formatTokens(totalTokens)}。${rankingPhrase}，你也快来【${deploymentUrl}】浪费 Token 吧。`,
+        `I burned ${formatTokens(todayTokens)} pointless tokens with Token Killer today, ${formatTokens(totalTokens)} in total. ${rankingPhrase}. Come waste yours at ${deploymentUrl}.`,
+      )
   const shareToX = () => {
     window.open(`https://x.com/intent/post?text=${encodeURIComponent(shareText)}`, '_blank', 'noopener,noreferrer')
   }
@@ -776,7 +1052,23 @@ function StatsPanel({ runs, settings, leaderboardVersion, participantLabel }) {
           <h1>每一个 token 都有记录。</h1>
           <p>查看消耗趋势、运行记录与全网排行。</p>
         </div>
-        <button className="secondary-button" type="button" onClick={() => exportShareCard({ todayTokens, totalTokens, totalCost, participantLabel, globalRank, tier: currentTier, locale })}>
+        <button
+          className="secondary-button"
+          type="button"
+          onClick={() => exportShareCard({
+            story: shareStory,
+            todayTokens,
+            totalTokens,
+            totalCost,
+            participantLabel,
+            globalRank,
+            tier: currentTier,
+            locale,
+            activity,
+            achievement: selectedAchievement,
+            achievements,
+          })}
+        >
           <DownloadSimple size={18} />
           导出分享卡
         </button>
@@ -911,47 +1203,69 @@ function StatsPanel({ runs, settings, leaderboardVersion, participantLabel }) {
         </div>
       </section>
 
+      <AchievementGallery
+        achievements={achievements}
+        locale={locale}
+        selectedId={selectedAchievement?.id || ''}
+        onSelect={(achievementId) => {
+          setSelectedAchievementId(achievementId)
+          setShareStory('achievement')
+        }}
+      />
+
       <div className="stats-layout">
         <section className="chart-section section-block">
-          <div className="section-heading">
+          <div className="activity-heading">
             <div>
-              <h2>热门模型</h2>
-              <p>近 7 天 Token 用量与模型份额。</p>
+              <h2>Token 活动</h2>
+              <p>过去一年按 usage 回执记录的消耗强度。</p>
             </div>
-            <span className="rankings-window"><span />最近 7 天</span>
+            <div className="activity-tabs" role="group" aria-label="Token 活动统计周期">
+              {[
+                ['day', '每日'],
+                ['week', '每周'],
+                ['total', '累计'],
+              ].map(([value, label]) => (
+                <button
+                  className={activityMode === value ? 'active' : ''}
+                  key={value}
+                  type="button"
+                  aria-pressed={activityMode === value}
+                  onClick={() => setActivityMode(value)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
 
-          <div className="model-volume-chart" aria-label="近 7 天各模型 Token 用量堆叠图">
-            <div className="model-chart-scale" aria-hidden="true">
-              <span>{hasChartData ? formatTokens(dailyPeak) : ''}</span>
-              <span>{hasChartData ? formatTokens(dailyPeak / 2) : ''}</span>
-              <span>0</span>
+          <ActivityMatrix activity={activity} mode={activityMode} locale={locale} />
+
+          <div className="activity-summary">
+            <div>
+              <span>{activityMode === 'day' ? '今日' : activityMode === 'week' ? '本周' : '累计'}</span>
+              <strong>
+                {formatTokens(
+                  activityMode === 'day'
+                    ? activity.today.tokens
+                    : activityMode === 'week'
+                      ? activity.currentWeek.tokens
+                      : activity.allTimeTokens,
+                )}
+              </strong>
             </div>
-            <div className="model-chart-main">
-              <div className="model-chart-grid" aria-hidden="true"><i /><i /><i /></div>
-              <div className="stacked-bars">
-                {stackedDays.map((day) => (
-                  <div className="stacked-day" key={day.key} title={`${day.label} ${formatTokens(day.tokens)} Token`}>
-                    <span className="stacked-value">{day.tokens ? formatTokens(day.tokens) : ''}</span>
-                    <div className="stacked-column">
-                      {day.segments.map((segment) => segment.tokens ? (
-                        <i
-                          className={`model-segment tone-${segment.tone}`}
-                          key={segment.model}
-                          style={{ height: `${Math.max(2, (segment.tokens / dailyPeak) * 100)}%` }}
-                        />
-                      ) : null)}
-                      {day.other ? <i className="model-segment tone-other" style={{ height: `${Math.max(2, (day.other / dailyPeak) * 100)}%` }} /> : null}
-                    </div>
-                    <span className="stacked-label">{day.label}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
+            <div><span>活跃天数</span><strong>{activity.activeDays}</strong></div>
+            <div><span>当前连续</span><strong>{formatDayCount(activity.currentStreak)}</strong></div>
+            <div><span>最长连续</span><strong>{formatDayCount(activity.longestStreak)}</strong></div>
           </div>
 
           {rankedModels.length ? (
-            <ol className="model-ranking-list" aria-label="模型 Token 排行">
+            <div className="activity-models">
+              <div className="activity-models-head">
+                <strong>近 7 天模型份额</strong>
+                <span>{formatTokens(recentTokens)} Token</span>
+              </div>
+              <ol className="model-ranking-list" aria-label="模型 Token 排行">
               {rankedModels.map((item, index) => (
                 <li key={item.model}>
                   <span className="model-rank">{String(index + 1).padStart(2, '0')}</span>
@@ -963,7 +1277,8 @@ function StatsPanel({ runs, settings, leaderboardVersion, participantLabel }) {
                   <b>{formatTokens(item.tokens)}</b>
                 </li>
               ))}
-            </ol>
+              </ol>
+            </div>
           ) : (
             <div className="model-ranking-empty">
               <ChartBar size={24} />
@@ -973,23 +1288,37 @@ function StatsPanel({ runs, settings, leaderboardVersion, participantLabel }) {
         </section>
 
         <section className="share-card-section">
-          <div className="share-card">
-            <div className="share-card-head">
-              <Fire size={24} weight="fill" />
-              <span>TOKEN KILLER</span>
-            </div>
-            <strong>{formatTokens(todayTokens)}</strong>
-            <p>今日无意义消耗 TOKEN</p>
-            <div className="share-card-rank">
-              <Crown size={16} weight="fill" />
-              <span>{globalRank ? `全球第 ${globalRank} 名` : '冲击全球榜'}</span>
-              <b>{currentTier.fullName}</b>
-            </div>
-            <div className="share-card-foot">
-              <span>累计 {formatTokens(totalTokens)}</span>
-              <span>{participantLabel}</span>
-            </div>
+          <div className="share-story-tabs" role="group" aria-label={t(locale, '分享故事', 'Share story')}>
+            {[
+              ['activity', t(locale, '活动', 'Activity')],
+              ['rank', t(locale, '段位', 'Rank')],
+              ['achievement', t(locale, '成就', 'Achievement')],
+            ].map(([value, label]) => (
+              <button
+                className={shareStory === value ? 'active' : ''}
+                key={value}
+                type="button"
+                disabled={value === 'achievement' && !selectedAchievement}
+                aria-pressed={shareStory === value}
+                onClick={() => setShareStory(value)}
+              >
+                {label}
+              </button>
+            ))}
           </div>
+          <ShareStoryCard
+            story={shareStory}
+            activity={activity}
+            todayTokens={todayTokens}
+            totalTokens={totalTokens}
+            totalCost={totalCost}
+            globalRank={globalRank}
+            tier={currentTier}
+            participantLabel={participantLabel}
+            achievement={selectedAchievement}
+            achievements={achievements}
+            locale={locale}
+          />
           <div className="share-actions">
             <button type="button" onClick={shareToX}>
               <XLogo size={18} />
