@@ -23,7 +23,7 @@
     "@maxmind/geoip2-node": "^7.1.0",
     "@phosphor-icons/react": "^2.1.10",
     "@province-city-china/city": "^8.5.8",
-    "better-sqlite3": "^12.11.1",
+    "better-sqlite3": "^13.0.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },
